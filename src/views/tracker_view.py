@@ -174,7 +174,6 @@ class TrackerView:
         self.log_btn.style = ft.ButtonStyle(
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST if blocked else ft.Colors.PRIMARY,
             color=ft.Colors.OUTLINE if blocked else ft.Colors.ON_PRIMARY,
-            padding=ft.Padding(0, 14, 0, 14),
             shape=ft.RoundedRectangleBorder(radius=10),
         )
 
@@ -182,10 +181,11 @@ class TrackerView:
         return ft.FilledButton(
             content="LOG THIS SET",
             icon=ft.Icons.CHECK_CIRCLE,
+            expand=True,
+            height=48,
             style=ft.ButtonStyle(
                 bgcolor=ft.Colors.PRIMARY,
                 color=ft.Colors.ON_PRIMARY,
-                padding=ft.Padding(0, 14, 0, 14),
                 shape=ft.RoundedRectangleBorder(radius=10),
             ),
             on_click=self._on_log_set,
@@ -485,10 +485,12 @@ class TrackerView:
                         ),
                     ),
 
-                    # 5. Primary Action Button
+                    # 5. Primary Action Button (Full Width)
                     ft.Container(
                         padding=ft.Padding(0, 2, 0, 0),
-                        content=self.log_btn,
+                        content=ft.Row(
+                            controls=[self.log_btn],
+                        ),
                     ),
                 ],
             ),
