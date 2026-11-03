@@ -1,0 +1,49 @@
+[project]
+name = "snap-rep"
+version = "0.1.0"
+description = "SnapRep - Android Rep and Workout Tracker"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Datlabs Team", email = "sales@datlabs.in" }
+]
+dependencies = [
+    "flet>=1.0.5",
+]
+
+[dependency-groups]
+dev = [
+    "flet-cli>=1.0.5",
+    "flet-mcp>=1.0.5",
+    "flet-desktop>=1.0.5",
+    "flet-web>=1.0.5",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "flet[test]>=1.0.5",
+]
+
+[tool.uv]
+package = false
+
+[tool.flet]
+org = "com.datlabs"
+product = "SnapRep"
+company = "Datlabs"
+copyright = "Copyright (C) 2026 Datlabs"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.android]
+split_per_abi = false
+adaptive_icon_background = "#0f172a"
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.VIBRATE" = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]

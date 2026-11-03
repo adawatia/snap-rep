@@ -1,0 +1,825 @@
+"""Comprehensive tests for SnapRep data models, storage, state management, and edge cases."""
+
+import asyncio
+import csv
+from pathlib import Path
+import pytest
+import tempfile
+
+from config import DEFAULT_EXERCISES_DATA, DEFAULT_SETTINGS, EXERCISE_CATEGORIES
+from models import DEFAULT_EXERCISES, Exercise, SetRecord
+from state import AppState
+from storage import AppStorage
+from theme import resolve_theme_mode
+import flet as ft
+
+
+def test_default_exercises_and_categories():
+    assert len(DEFAULT_EXERCISES) >= 10
+    pushup = next(e for e in DEFAULT_EXERCISES if e.name == "Push-ups")
+    assert pushup.default_reps == 15
+    assert "Chest" in EXERCISE_CATEGORIES
+    assert "Calisthenics" in EXERCISE_CATEGORIES
+
+
+def test_exercise_serialization():
+    ex = Exercise(name="Incline DB Press", category="Chest", default_reps=12, default_weight=24.0, is_custom=True)
+    data = ex.to_dict()
+    assert data["name"] == "Incline DB Press"
+    assert data["category"] == "Chest"
+    assert data["default_reps"] == 12
+    assert data["default_weight"] == 24.0
+    assert data["is_custom"] is True
+
+    restored = Exercise.from_dict(data)
+    assert restored.name == ex.name
+    assert restored.category == ex.category
+    assert restored.default_reps == ex.default_reps
+    assert restored.default_weight == ex.default_weight
+    assert restored.is_custom is True
+
+
+def test_set_record_serialization():
+    record = SetRecord(exercise="Pull-ups", reps=10, weight_kg=0.0, notes="Felt strong")
+    data = record.to_dict()
+    assert data["exercise"] == "Pull-ups"
+    assert data["reps"] == 10
+    assert data["notes"] == "Felt strong"
+
+    restored = SetRecord.from_dict(data)
+    assert restored.exercise == "Pull-ups"
+    assert restored.reps == 10
+    assert restored.notes == "Felt strong"
+    assert restored.id == record.id
+
+
+def test_storage_history_and_single_set_deletion():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+
+        assert storage.load_history() == []
+
+        rec1 = SetRecord(exercise="Bench Press", reps=8, weight_kg=70.0)
+        rec2 = SetRecord(exercise="Bench Press", reps=6, weight_kg=75.0)
+        storage.add_record(rec1)
+        storage.add_record(rec2)
+
+        history = storage.load_history()
+        assert len(history) == 2
+        assert history[0].weight_kg == 75.0
+
+        # Delete single set
+        storage.delete_set(rec2.id)
+        history_after = storage.load_history()
+        assert len(history_after) == 1
+        assert history_after[0].id == rec1.id
+
+        # Clear
+        storage.clear_history()
+        assert storage.load_history() == []
+
+
+def test_custom_exercises_duplicate_detection():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        exercises = storage.load_exercises()
+        assert len(exercises) == len(DEFAULT_EXERCISES)
+
+        # Add unique custom exercise
+        custom = Exercise("Hammer Curl", "Arms", default_reps=12, default_weight=16.0)
+        updated = storage.add_exercise(custom)
+        assert len(updated) == len(DEFAULT_EXERCISES) + 1
+        assert updated[0].name == "Hammer Curl"
+        assert updated[0].is_custom is True
+
+        # Duplicate exercise addition raises ValueError
+        dup = Exercise("hammer curl", "Arms", default_reps=10, default_weight=14.0)
+        with pytest.raises(ValueError, match="already exists"):
+            storage.add_exercise(dup)
+
+        # Delete custom exercise
+        after_delete = storage.delete_custom_exercise("Hammer Curl")
+        assert len(after_delete) == len(DEFAULT_EXERCISES)
+        assert not any(e.name == "Hammer Curl" for e in after_delete)
+
+
+def test_csv_export():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+
+        rec1 = SetRecord(exercise="Barbell Squat", reps=10, weight_kg=80.0)
+        rec2 = SetRecord(exercise="Push-ups", reps=25, weight_kg=0.0)
+        storage.add_record(rec1)
+        storage.add_record(rec2)
+
+        export_file, csv_content = storage.export_history_to_csv()
+
+        assert export_file.exists()
+        assert export_file.suffix == ".csv"
+
+        reader = list(csv.reader(csv_content.strip().splitlines()))
+        assert reader[0] == ["ID", "Timestamp", "Exercise", "Reps", "Weight_kg", "Volume_kg", "Notes"]
+        assert len(reader) == 3  # Header + 2 sets
+
+        # Check calculated volume
+        assert reader[1][2] == "Push-ups"
+        assert reader[1][3] == "25"
+        assert reader[1][5] == "0.0"
+
+        assert reader[2][2] == "Barbell Squat"
+        assert reader[2][3] == "10"
+        assert reader[2][4] == "80.0"
+        assert reader[2][5] == "800.0"
+
+
+def test_theme_resolution():
+    assert resolve_theme_mode("dark") == ft.ThemeMode.DARK
+    assert resolve_theme_mode("light") == ft.ThemeMode.LIGHT
+    assert resolve_theme_mode("system") == ft.ThemeMode.SYSTEM
+    assert resolve_theme_mode("unknown") == ft.ThemeMode.SYSTEM
+
+
+@pytest.mark.asyncio
+async def test_app_state_rep_and_weight_clamping():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Reps clamping
+        await state.update_reps(delta=-100)
+        assert state.current_reps == 0
+
+        await state.update_reps(absolute=1500)
+        assert state.current_reps == 999
+
+        # Weight clamping
+        await state.update_weight(delta=-200.0)
+        assert state.current_weight == 0.0
+
+        await state.update_weight(absolute=2000.0)
+        assert state.current_weight == 1000.0
+
+
+@pytest.mark.asyncio
+async def test_app_state_log_set_validation():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Cannot log set with 0 reps
+        await state.update_reps(absolute=0)
+        success, msg = await state.log_set()
+        assert success is False
+        assert "at least 1" in msg
+        assert len(state.history) == 0
+
+        # Can log set with positive reps
+        await state.update_reps(absolute=12)
+        await state.update_weight(absolute=50.0)
+        success, msg = await state.log_set()
+        assert success is True
+        assert len(state.history) == 1
+        assert state.history[0].reps == 12
+        assert state.history[0].weight_kg == 50.0
+        assert state.current_set_number == 2
+
+        # Clean timer cleanup
+        state.cancel_timer_task()
+
+
+@pytest.mark.asyncio
+async def test_app_state_timer_flow():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Set preset
+        await state.set_timer_preset(10)
+        assert state.timer_running is True
+        assert state.timer_seconds_remaining == 10
+        assert state.timer_task is not None
+
+        # Pause
+        await state.toggle_timer()
+        assert state.timer_running is False
+        assert state.timer_task is None
+
+        # Reset
+        await state.reset_timer()
+        assert state.timer_running is False
+        assert state.timer_seconds_remaining == 0
+
+
+@pytest.mark.asyncio
+async def test_app_state_custom_exercise_and_deletion():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Add exercise
+        new_ex = await state.add_custom_exercise("Overhead Tricep Extension", "Arms", 12, 20.0)
+        assert new_ex.name == "Overhead Tricep Extension"
+        assert state.current_exercise.name == "Overhead Tricep Extension"
+
+        # Duplicate check raises
+        with pytest.raises(ValueError, match="already exists"):
+            await state.add_custom_exercise("overhead tricep extension", "Arms", 10, 15.0)
+
+        # Delete exercise
+        await state.delete_custom_exercise("Overhead Tricep Extension")
+        assert not any(e.name == "Overhead Tricep Extension" for e in state.exercises)
+        assert state.current_exercise.name != "Overhead Tricep Extension"
+
+
+@pytest.mark.asyncio
+async def test_update_default_and_custom_exercise():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # 1. Update built-in exercise defaults (name remains preserved)
+        updated_pushups = await state.update_exercise(
+            original_name="Push-ups",
+            name="Push-ups Renamed Attempt",
+            category="Chest",
+            default_reps=25,
+            default_weight=5.0,
+        )
+        assert updated_pushups.name == "Push-ups"  # built-in preserves canonical name
+        assert updated_pushups.category == "Chest"
+        assert updated_pushups.default_reps == 25
+        assert updated_pushups.default_weight == 5.0
+        assert updated_pushups.is_custom is False
+
+        # 2. Add and update a custom exercise
+        await state.add_custom_exercise("Pistol Squat", "Legs", 5, 0.0)
+        updated_custom = await state.update_exercise(
+            original_name="Pistol Squat",
+            name="Single Leg Squat",
+            category="Legs",
+            default_reps=8,
+            default_weight=10.0,
+        )
+        assert updated_custom.name == "Single Leg Squat"
+        assert updated_custom.default_reps == 8
+        assert updated_custom.default_weight == 10.0
+        assert updated_custom.is_custom is True
+
+        # 3. Collision with existing exercise raises ValueError
+        with pytest.raises(ValueError, match="already exists"):
+            await state.update_exercise(
+                original_name="Single Leg Squat",
+                name="Push-ups",
+                category="Chest",
+                default_reps=10,
+                default_weight=0.0,
+            )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_set_prevention_in_log_set():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        state.update_setting("default_rest_timer", 0)  # Disable auto-timer to test pure debounce
+
+        await state.update_reps(absolute=10)
+        await state.update_weight(absolute=50.0)
+
+        # 1st log succeeds
+        success1, msg1 = await state.log_set()
+        assert success1 is True
+        assert len(state.history) == 1
+
+        # Rapid 2nd log with identical params is debounced and ignored
+        success2, msg2 = await state.log_set()
+        assert success2 is False
+        assert "Duplicate set ignored" in msg2
+        assert len(state.history) == 1
+
+        # Changing reps allows logging immediately
+        await state.update_reps(absolute=11)
+        success3, msg3 = await state.log_set()
+        assert success3 is True
+        assert len(state.history) == 2
+
+        state.cancel_timer_task()
+
+
+@pytest.mark.asyncio
+async def test_default_rest_timer_configuration():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Configure default rest timer to 90 seconds
+        state.update_setting("default_rest_timer", 90)
+        assert state.settings["default_rest_timer"] == 90
+
+        await state.update_reps(absolute=10)
+        await state.log_set()
+        assert state.timer_running is True
+        assert state.timer_seconds_remaining == 90
+        await state.reset_timer()
+
+        # Configure default rest timer to 0 (disabled)
+        state.update_setting("default_rest_timer", 0)
+        await state.update_reps(absolute=12)
+        await state.log_set()
+        assert state.timer_running is False
+        state.cancel_timer_task()
+
+
+class MockPage:
+    def __init__(self):
+        self.controls = []
+        self.services = []
+        self.dialog = None
+        self.theme_mode = "dark"
+
+    def update(self):
+        pass
+
+    def show_dialog(self, dialog):
+        self.dialog = dialog
+
+    def pop_dialog(self):
+        self.dialog = None
+
+
+def test_calendar_and_grouped_history_view():
+    from views.history_view import HistoryView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        # Seed records across two distinct dates
+        rec1 = SetRecord(exercise="Push-ups", reps=20, weight_kg=0.0, timestamp="2026-11-01 10:00:00")
+        rec2 = SetRecord(exercise="Barbell Bench Press", reps=10, weight_kg=70.0, timestamp="2026-11-03 09:00:00")
+        rec3 = SetRecord(exercise="Barbell Bench Press", reps=8, weight_kg=75.0, timestamp="2026-11-03 09:05:00")
+        storage.add_record(rec1)
+        storage.add_record(rec2)
+        storage.add_record(rec3)
+
+        state = AppState(storage=storage)
+        page = MockPage()
+        history_view = HistoryView(page, state)
+
+        # Select 2026-11-03
+        history_view._select_date("2026-11-03")
+        assert history_view.selected_date_str == "2026-11-03"
+        assert history_view.view_mode == "day"
+        # Renders 2 set cards in the classic format containing individual delete buttons
+        assert len(history_view.day_exercise_list.controls) == 2
+        assert "2 sets" in history_view.selected_date_stats.value
+
+        # Select 2026-11-01
+        history_view._select_date("2026-11-01")
+        assert len(history_view.day_exercise_list.controls) == 1
+        assert "1 sets" in history_view.selected_date_stats.value
+
+        # Select a rest day (e.g. 2026-11-02)
+        history_view._select_date("2026-11-02")
+        assert "No sets recorded" in history_view.selected_date_stats.value
+
+        # Attempting to select a future date is strictly blocked
+        current_sel = history_view.selected_date_str
+        history_view._select_date("2099-12-31")
+        assert history_view.selected_date_str == current_sel
+
+        # Switch to All History view
+        history_view._set_view_mode("all")
+        assert history_view.view_mode == "all"
+        assert len(history_view.day_exercise_list.controls) == 3
+
+
+@pytest.mark.asyncio
+async def test_settings_view_preferences():
+    from views.settings_view import SettingsView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        page = MockPage()
+        settings_view = SettingsView(page, state)
+
+        # Check theme change
+        settings_view.theme_dropdown.value = "light"
+        await settings_view._on_theme_select(None)
+        assert state.settings["theme_mode"] == "light"
+
+        # Check rest timer change
+        settings_view.rest_timer_dropdown.value = "120"
+        await settings_view._on_rest_timer_select(None)
+        assert state.settings["default_rest_timer"] == 120
+
+        # Check haptic toggle
+        settings_view.haptic_switch.value = False
+        await settings_view._on_haptic_toggle(None)
+        assert state.settings["haptic_feedback"] is False
+
+
+@pytest.mark.asyncio
+async def test_main_mount():
+    from main import main
+
+    page = MockPage()
+    page.services = []
+    page.controls = []
+    page.add = lambda ctrl: page.controls.append(ctrl)
+
+    await main(page)
+
+    assert len(page.controls) == 1
+    assert page.navigation_bar is not None
+    assert page.appbar is not None
+    assert page.navigation_bar.selected_index == 0
+    assert len(page.navigation_bar.destinations) == 5
+
+
+def test_tracker_view_weight_and_input():
+    from views.tracker_view import TrackerView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        page = MockPage()
+        tracker = TrackerView(page, state)
+
+        # Check initial weight input and spacious stepper controls
+        assert tracker.weight_input.value == "0"
+        assert tracker.default_weight_btn is not None
+
+        # Typing in weight input updates state
+        class MockEvent:
+            class control:
+                value = "72.5"
+        tracker._on_weight_input_change(MockEvent())
+        assert state.current_weight == 72.5
+
+        # Update UI syncs formatted text
+        tracker.update_ui()
+        assert tracker.weight_input.value == "72.5"
+
+
+def test_history_view_long_exercise_name_no_overflow():
+    from views.history_view import HistoryView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        long_rec = SetRecord(
+            exercise="Extremely Long Custom Exercise Name That Could Overflow Any Mobile Screen Bench Press",
+            reps=10,
+            weight_kg=100.0,
+            timestamp="2026-11-03 10:00:00",
+        )
+        storage.add_record(long_rec)
+        state = AppState(storage=storage)
+        page = MockPage()
+        history_view = HistoryView(page, state)
+
+        history_view._select_date("2026-11-03")
+        assert len(history_view.day_exercise_list.controls) == 1
+        card = history_view.day_exercise_list.controls[0]
+        card_content = card.content.content
+        # Ensure left side is expand=True so delete button on right is never pushed out
+        left_row = card_content.controls[0]
+        assert left_row.expand is True
+        right_row = card_content.controls[1]
+        # Delete icon button is present on the right
+        assert right_row.controls[1].icon == ft.Icons.DELETE_OUTLINE
+
+
+def test_edit_exercise_dialog_creation_no_type_error():
+    from components.edit_exercise_dialog import show_edit_exercise_dialog
+
+    page = MockPage()
+    state = AppState(storage=AppStorage(storage_dir=Path(tempfile.mkdtemp())))
+
+    # Built-in exercise dialog
+    pushups = next(e for e in state.exercises if e.name == "Push-ups")
+    show_edit_exercise_dialog(page, state, pushups)
+    assert page.dialog is not None
+    assert "Push-ups" in page.dialog.title.value
+
+    # Custom exercise dialog
+    custom_ex = Exercise("Custom Chin-up", "Calisthenics", 10, 0.0, is_custom=True)
+    show_edit_exercise_dialog(page, state, custom_ex)
+    assert page.dialog is not None
+    assert "Custom Chin-up" in page.dialog.title.value
+
+
+def test_exercises_view_library_and_filtering():
+    from views.exercises_view import ExercisesView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        page = MockPage()
+        view = ExercisesView(page, state)
+
+        # Initially shows all default exercises
+        assert len(view.exercise_list_column.controls) >= 10
+        assert "Showing" in view.count_badge.value
+
+        # Filter by category
+        view._select_category("Chest")
+        assert len(view.exercise_list_column.controls) >= 1
+
+        # Search filter
+        class MockEvent:
+            class control:
+                value = "bench"
+        view._on_search_change(MockEvent())
+        assert len(view.exercise_list_column.controls) == 1
+
+
+def test_history_view_no_duplicate_sets_on_repeated_renders():
+    from views.history_view import HistoryView
+    from datetime import date
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        today_str = date.today().strftime("%Y-%m-%d")
+
+        # Add 3 distinct sets
+        rec1 = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, timestamp=f"{today_str} 10:00:00")
+        rec2 = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, timestamp=f"{today_str} 10:02:00")
+        rec3 = SetRecord(exercise="Bench Press", reps=8, weight_kg=70.0, timestamp=f"{today_str} 10:05:00")
+        storage.add_record(rec1)
+        storage.add_record(rec2)
+        storage.add_record(rec3)
+
+        state = AppState(storage=storage)
+        page = MockPage()
+        history_view = HistoryView(page, state)
+
+        # Select today
+        history_view._select_date(today_str)
+
+        # Simulate 10 rapid update_ui calls
+        for _ in range(10):
+            history_view.update_ui()
+
+        # Day view must strictly have 3 set cards
+        assert len(history_view.day_exercise_list.controls) == 3
+
+        # Switch to all view and simulate 10 update_ui calls
+        history_view._set_view_mode("all")
+        for _ in range(10):
+            history_view.update_ui()
+
+        # All view must strictly have 3 set cards
+        assert len(history_view.day_exercise_list.controls) == 3
+
+
+@pytest.mark.asyncio
+async def test_timer_decoupled_notifications():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        global_notify_count = 0
+        timer_notify_count = 0
+
+        def on_global_notify():
+            nonlocal global_notify_count
+            global_notify_count += 1
+
+        def on_timer_notify():
+            nonlocal timer_notify_count
+            timer_notify_count += 1
+
+        state.subscribe(on_global_notify)
+        state.subscribe_timer(on_timer_notify)
+
+        # Second tick must ONLY notify timer subscribers
+        state.timer_seconds_remaining = 30
+        state.timer_running = True
+        state._notify_timer()
+
+        assert timer_notify_count == 1
+        assert global_notify_count == 0
+
+        # Unsubscribe timer
+        state.unsubscribe_timer(on_timer_notify)
+        state._notify_timer()
+        assert timer_notify_count == 1
+
+
+def test_storage_deduplication():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        rec = SetRecord(exercise="Squats", reps=10, weight_kg=80.0)
+
+        # Add once
+        storage.add_record(rec)
+        assert len(storage.load_history()) == 1
+
+        # Adding same record with identical ID must not duplicate
+        storage.add_record(rec)
+        assert len(storage.load_history()) == 1
+
+        # Adding another record with different ID but identical exercise, reps, weight and timestamp is rejected
+        rec2 = SetRecord(exercise="Squats", reps=10, weight_kg=80.0, timestamp=rec.timestamp)
+        storage.add_record(rec2)
+        assert len(storage.load_history()) == 1
+
+
+@pytest.mark.asyncio
+async def test_state_rapid_log_debounce():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        state.update_setting("default_rest_timer", 0)  # Pure debounce without auto-timer
+
+        # First log succeeds
+        success1, _ = await state.log_set()
+        assert success1 is True
+
+        # Rapid second log within 3 seconds with identical parameters is rejected
+        success2, msg2 = await state.log_set()
+        assert success2 is False
+        assert "Duplicate set ignored" in msg2
+
+
+@pytest.mark.asyncio
+async def test_log_blocked_while_rest_timer_running():
+    """Validates user requirement: till rest timer is running you cant log another set."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        state.update_setting("default_rest_timer", 60)
+
+        # 1. First log starts 60s rest timer
+        success1, _ = await state.log_set()
+        assert success1 is True
+        assert state.timer_running is True
+        assert state.timer_seconds_remaining == 60
+
+        # 2. Second log is blocked because timer is running
+        success2, msg2 = await state.log_set()
+        assert success2 is False
+        assert "Rest timer is running" in msg2
+
+        # 3. Stopping/resetting the timer unblocks logging
+        await state.reset_timer()
+        assert state.timer_running is False
+
+        # Now can log again (with different reps or after debounce)
+        await state.update_reps(absolute=20)
+        success3, _ = await state.log_set()
+        assert success3 is True
+        state.cancel_timer_task()
+
+
+@pytest.mark.asyncio
+async def test_log_blocked_while_in_flight():
+    """Synchronous _logging_in_progress flag prevents concurrent log calls."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Manually set the in-flight flag (simulates concurrent button tap)
+        state._logging_in_progress = True
+        success, msg = await state.log_set()
+        assert success is False
+        assert "Already logging" in msg
+        # Flag should NOT have been cleared by this call (it was set externally)
+        state._logging_in_progress = False
+
+
+@pytest.mark.asyncio
+async def test_tracker_log_btn_blocked_during_timer():
+    from views.tracker_view import TrackerView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        page = MockPage()
+        tracker = TrackerView(page, state)
+
+        # Initially log button should NOT be blocked
+        assert not tracker._is_log_blocked()
+
+        # Simulate timer running
+        state.timer_running = True
+        state.timer_seconds_remaining = 60
+        assert tracker._is_log_blocked()
+
+        # Simulate timer finished
+        state.timer_running = False
+        state.timer_seconds_remaining = 0
+        assert not tracker._is_log_blocked()
+
+
+def test_set_record_model_set_number():
+    rec = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, set_number=3)
+    d = rec.to_dict()
+    assert d["set_number"] == 3
+
+    restored = SetRecord.from_dict(d)
+    assert restored.set_number == 3
+
+    # Backwards compatibility when set_number is missing in JSON
+    legacy_d = {"id": "123", "exercise": "Squats", "reps": 10, "weight_kg": 50.0}
+    legacy_rec = SetRecord.from_dict(legacy_d)
+    assert legacy_rec.set_number == 1
+
+
+@pytest.mark.asyncio
+async def test_dynamic_set_number_recalculation():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        state.update_setting("default_rest_timer", 0)
+
+        # Starts at Set 1
+        assert state.current_set_number == 1
+
+        # Log Set 1
+        success1, _ = await state.log_set()
+        assert success1 is True
+        assert state.current_set_number == 2
+
+        # Log Set 2 (with different reps to bypass debounce)
+        await state.update_reps(absolute=20)
+        success2, _ = await state.log_set()
+        assert success2 is True
+        assert state.current_set_number == 3
+
+        # Switch to Bench Press (no sets today) -> set number resets to 1
+        bench = next(e for e in state.exercises if "Bench" in e.name)
+        await state.select_exercise(bench.name)
+        assert state.current_set_number == 1
+
+        # Switch back to Push-ups -> set number continues at 3
+        pushups = next(e for e in state.exercises if e.name == "Push-ups")
+        await state.select_exercise(pushups.name)
+        assert state.current_set_number == 3
+
+        # Deleting a set reduces current set number
+        rec_to_delete = state.history[0].id
+        await state.delete_set(rec_to_delete)
+        assert state.current_set_number == 2
+
+        # Clear all resets to 1
+        await state.clear_history()
+        assert state.current_set_number == 1
+
+
+@pytest.mark.asyncio
+async def test_tracker_filled_button_and_history_badges():
+    from datetime import date
+    from views.tracker_view import TrackerView
+    from views.history_view import HistoryView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        page = MockPage()
+        tracker = TrackerView(page, state)
+
+        # FilledButton type check and default label
+        assert isinstance(tracker.log_btn, ft.FilledButton)
+        assert tracker.log_btn.content == "LOG THIS SET"
+        assert tracker.log_btn.disabled is False
+
+        # Simulate timer running -> direct button content update
+        state.timer_running = True
+        state.timer_seconds_remaining = 45
+        tracker._sync_log_btn_state()
+        assert tracker.log_btn.disabled is True
+        assert "REST 45s (LOCKED)" in tracker.log_btn.content
+
+        # Stop timer -> button reverts
+        state.timer_running = False
+        state.timer_seconds_remaining = 0
+        tracker._sync_log_btn_state()
+        assert tracker.log_btn.disabled is False
+        assert tracker.log_btn.content == "LOG THIS SET"
+
+        # History View renders SET badges
+        today_str = date.today().strftime("%Y-%m-%d")
+        r1 = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, timestamp=f"{today_str} 10:00:00", set_number=1)
+        r2 = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, timestamp=f"{today_str} 10:02:00", set_number=2)
+        storage.add_record(r1)
+        storage.add_record(r2)
+        state.history = storage.load_history()
+
+        history_view = HistoryView(page, state)
+        history_view._select_date(today_str)
+        cards = history_view.day_exercise_list.controls
+        assert len(cards) == 2
+
+        # Check SET badges in cards
+        for card in cards:
+            assert card.key.startswith("set_card_")
+            card_content = card.content.content
+            left_row = card_content.controls[0]
+            set_badge = left_row.controls[0]
+            assert "SET" in set_badge.content.value
+
+
+
+
+
