@@ -910,6 +910,28 @@ def test_tracker_timer_tick_tab_awareness():
         assert tracker.timer_display.value == "00:14"
 
 
+def test_get_default_storage_dir_mobile_and_desktop(monkeypatch):
+    from storage import get_default_storage_dir
+
+    # 1. Flet mobile runtime environment variable
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", "/data/user/0/com.datlabs.snaprep/app_flutter/data")
+    path = get_default_storage_dir()
+    assert str(path) == str(Path("/data/user/0/com.datlabs.snaprep/app_flutter/data/.snap_rep"))
+
+    # 2. Android sandbox fallback
+    monkeypatch.delenv("FLET_APP_STORAGE_DATA", raising=False)
+    monkeypatch.setenv("ANDROID_PRIVATE", "/data/user/0/com.datlabs.snaprep/files")
+    path = get_default_storage_dir()
+    assert str(path) == str(Path("/data/user/0/com.datlabs.snaprep/files/.snap_rep"))
+
+    # 3. Guard against Android returning root-owned '/data'
+    monkeypatch.delenv("ANDROID_PRIVATE", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: Path("/data"))
+    path = get_default_storage_dir()
+    assert path == Path.cwd() / ".snap_rep"
+
+
+
 
 
 

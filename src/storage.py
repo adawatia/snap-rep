@@ -46,10 +46,33 @@ def _is_rapid_duplicate(r1: SetRecord, r2: SetRecord) -> bool:
         return False
 
 
+def get_default_storage_dir() -> Path:
+    """Returns the writable storage directory across Desktop and Mobile (Android/iOS)."""
+    # 1. Flet mobile runtime environment variable (persisted under application-support/data)
+    flet_data = os.environ.get("FLET_APP_STORAGE_DATA")
+    if flet_data:
+        return Path(flet_data) / ".snap_rep"
+
+    # 2. Android sandbox fallback
+    android_private = os.environ.get("ANDROID_PRIVATE") or os.environ.get("ANDROID_APP_PATH")
+    if android_private:
+        return Path(android_private) / ".snap_rep"
+
+    # 3. Desktop user home (with guard against Android returning root-owned '/data')
+    try:
+        home = Path.home()
+        home_normalized = str(home).replace("\\", "/").rstrip("/")
+        if home_normalized in ["", "/data"]:
+            return Path.cwd() / ".snap_rep"
+        return home / ".snap_rep"
+    except Exception:
+        return Path.cwd() / ".snap_rep"
+
+
 class AppStorage:
     def __init__(self, storage_dir: Optional[Path] = None):
         if storage_dir is None:
-            storage_dir = Path.home() / ".snap_rep"
+            storage_dir = get_default_storage_dir()
         self.storage_dir = storage_dir
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.history_file = self.storage_dir / "history.json"

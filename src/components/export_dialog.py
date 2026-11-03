@@ -22,6 +22,10 @@ async def show_export_dialog(page: ft.Page, state: AppState) -> None:
     if len(preview_lines) > 5:
         preview_text += f"\n... and {len(preview_lines) - 5} more sets"
 
+    is_mobile = page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]
+    location_label = "Saved to:" if is_mobile else "Saved to file:"
+    location_value = f"App Storage ({export_file.name})" if is_mobile else str(export_file)
+
     page.show_dialog(
         ft.AlertDialog(
             title=ft.Row(
@@ -45,8 +49,8 @@ async def show_export_dialog(page: ft.Page, state: AppState) -> None:
                             content=ft.Column(
                                 spacing=4,
                                 controls=[
-                                    ft.Text("Saved to file:", size=11, color=ft.Colors.OUTLINE),
-                                    ft.Text(str(export_file), size=12, weight=ft.FontWeight.BOLD),
+                                    ft.Text(location_label, size=11, color=ft.Colors.OUTLINE),
+                                    ft.Text(location_value, size=12, weight=ft.FontWeight.BOLD),
                                 ],
                             ),
                         ),
