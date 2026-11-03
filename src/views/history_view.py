@@ -10,7 +10,6 @@ from typing import List
 import flet as ft
 
 from components.confirm_dialog import show_confirm_dialog
-from components.export_dialog import show_export_dialog
 from models import SetRecord
 from state import AppState
 
@@ -50,7 +49,7 @@ class HistoryView:
 
         # Dynamic workout content container
         self.selected_date_label = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
-        self.selected_date_stats = ft.Text("", size=12, color=ft.Colors.OUTLINE)
+        self.selected_date_stats = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
         self.day_exercise_list = ft.Column(spacing=8)
         self.day_exercise_container = ft.Container(content=self.day_exercise_list)
 
@@ -178,7 +177,7 @@ class HistoryView:
                 ft.Container(
                     width=40,
                     alignment=ft.Alignment.CENTER,
-                    content=ft.Text(day_name, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.OUTLINE),
+                    content=ft.Text(day_name, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
                 for day_name in days_header
             ],
@@ -309,9 +308,9 @@ class HistoryView:
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=8,
                         controls=[
-                            ft.Icon(ft.Icons.EVENT_BUSY_OUTLINED, size=36, color=ft.Colors.OUTLINE),
-                            ft.Text("Rest Day or No Logs", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.OUTLINE),
-                            ft.Text("Select a highlighted date with a dot to view recorded sets.", size=12, color=ft.Colors.OUTLINE),
+                            ft.Icon(ft.Icons.EVENT_BUSY_OUTLINED, size=36, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("Rest Day or No Logs", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("Select a highlighted date with a dot to view recorded sets.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                         ],
                     ),
                 )
@@ -342,7 +341,7 @@ class HistoryView:
             set_summary = f"Set {set_num}: {item.reps} reps @ {wt_label}"
 
             set_badge = ft.Container(
-                content=ft.Text(f"SET {set_num}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                content=ft.Text(f"SET {set_num}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY_CONTAINER),
                 bgcolor=ft.Colors.PRIMARY_CONTAINER,
                 padding=ft.Padding(8, 4, 8, 4),
                 border_radius=6,
@@ -368,13 +367,13 @@ class HistoryView:
                                         max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
-                                    ft.Text(item.timestamp, size=11, color=ft.Colors.OUTLINE),
+                                    ft.Text(item.timestamp, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                     *(
                                         [
                                             ft.Text(
                                                 f"Note: {item.notes}",
                                                 size=11,
-                                                color=ft.Colors.OUTLINE,
+                                                color=ft.Colors.ON_SURFACE_VARIANT,
                                                 max_lines=1,
                                                 overflow=ft.TextOverflow.ELLIPSIS,
                                             )
@@ -394,13 +393,13 @@ class HistoryView:
                                 spacing=2,
                                 controls=[
                                     ft.Text(f"{item.reps} REPS", weight=ft.FontWeight.BOLD, size=14),
-                                    ft.Text(wt_label, size=11, color=ft.Colors.OUTLINE),
+                                    ft.Text(wt_label, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                 ],
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE,
                                 icon_size=18,
-                                icon_color=ft.Colors.OUTLINE,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
                                 tooltip="Delete this set",
                                 on_click=lambda _, rec_id=item.id, desc=set_summary: self._delete_single_set(rec_id, desc),
                             ),
@@ -432,7 +431,7 @@ class HistoryView:
                 ft.Container(
                     padding=24,
                     alignment=ft.Alignment.CENTER,
-                    content=ft.Text("No sets recorded yet.", size=13, color=ft.Colors.OUTLINE),
+                    content=ft.Text("No sets recorded yet.", size=13, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
             )
             self.day_exercise_list = ft.Column(spacing=8, controls=cards)
@@ -455,7 +454,7 @@ class HistoryView:
             set_summary = f"Set {set_num}: {item.reps} reps @ {wt_label}"
 
             set_badge = ft.Container(
-                content=ft.Text(f"SET {set_num}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY),
+                content=ft.Text(f"SET {set_num}", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_PRIMARY_CONTAINER),
                 bgcolor=ft.Colors.PRIMARY_CONTAINER,
                 padding=ft.Padding(8, 4, 8, 4),
                 border_radius=6,
@@ -481,13 +480,13 @@ class HistoryView:
                                         max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
-                                    ft.Text(item.timestamp, size=11, color=ft.Colors.OUTLINE),
+                                    ft.Text(item.timestamp, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                     *(
                                         [
                                             ft.Text(
                                                 f"Note: {item.notes}",
                                                 size=11,
-                                                color=ft.Colors.OUTLINE,
+                                                color=ft.Colors.ON_SURFACE_VARIANT,
                                                 max_lines=1,
                                                 overflow=ft.TextOverflow.ELLIPSIS,
                                             )
@@ -507,13 +506,13 @@ class HistoryView:
                                 spacing=2,
                                 controls=[
                                     ft.Text(f"{item.reps} REPS", weight=ft.FontWeight.BOLD, size=14),
-                                    ft.Text(wt_label, size=11, color=ft.Colors.OUTLINE),
+                                    ft.Text(wt_label, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                 ],
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE,
                                 icon_size=18,
-                                icon_color=ft.Colors.OUTLINE,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
                                 tooltip="Delete this set",
                                 on_click=lambda _, rec_id=item.id, desc=set_summary: self._delete_single_set(rec_id, desc),
                             ),
@@ -691,30 +690,8 @@ class HistoryView:
                         controls=[self.toggle_container],
                     ),
 
-                    # 4. Actions Toolbar (Export CSV & Clear All - The beloved old format, never overflows)
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            ft.Text("Workout Sets", size=16, weight=ft.FontWeight.BOLD),
-                            ft.Row(
-                                spacing=2,
-                                controls=[
-                                    ft.TextButton(
-                                        "Export CSV",
-                                        icon=ft.Icons.DOWNLOAD,
-                                        on_click=self._on_export_click,
-                                    ),
-                                    ft.TextButton(
-                                        "Clear All",
-                                        icon=ft.Icons.DELETE_OUTLINE,
-                                        icon_color=ft.Colors.ERROR,
-                                        on_click=self._on_clear_all_click,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
+                    # 4. Section Title
+                    ft.Text("Workout Sets", size=16, weight=ft.FontWeight.BOLD),
 
                     # 4. Selected Date Header & Stats
                     ft.Column(

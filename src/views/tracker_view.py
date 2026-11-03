@@ -68,7 +68,7 @@ class TrackerView:
             "Rest Timer",
             size=12,
             weight=ft.FontWeight.W_500,
-            color=ft.Colors.OUTLINE,
+            color=ft.Colors.ON_SURFACE_VARIANT,
         )
         self.timer_toggle_btn = ft.IconButton(
             icon=ft.Icons.PLAY_ARROW,
@@ -86,7 +86,7 @@ class TrackerView:
             options=self._build_exercise_options(),
             value=self.state.current_exercise.name,
             label="Select Exercise",
-            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.OUTLINE),
+            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
             border={
                 ft.ControlState.DEFAULT: ft.OutlineInputBorder(
                     border_radius=12,
@@ -374,7 +374,7 @@ class TrackerView:
                                                         "REPS",
                                                         size=10,
                                                         weight=ft.FontWeight.BOLD,
-                                                        color=ft.Colors.OUTLINE,
+                                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                                     ),
                                                 ],
                                             ),
@@ -407,7 +407,7 @@ class TrackerView:
                                             ft.Row(
                                                 spacing=4,
                                                 controls=[
-                                                    ft.Icon(ft.Icons.FITNESS_CENTER, size=15, color=ft.Colors.OUTLINE),
+                                                    ft.Icon(ft.Icons.FITNESS_CENTER, size=15, color=ft.Colors.ON_SURFACE_VARIANT),
                                                     ft.Text("WEIGHT LIFTED", size=11, weight=ft.FontWeight.BOLD),
                                                 ],
                                             ),

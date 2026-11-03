@@ -402,10 +402,13 @@ async def test_settings_view_preferences():
         page = MockPage()
         settings_view = SettingsView(page, state)
 
-        # Check theme change
-        settings_view.theme_dropdown.value = "light"
+        # Default is light theme
+        assert settings_view.theme_dropdown.value == "light"
+
+        # Check theme change to dark
+        settings_view.theme_dropdown.value = "dark"
         await settings_view._on_theme_select(None)
-        assert state.settings["theme_mode"] == "light"
+        assert state.settings["theme_mode"] == "dark"
 
         # Check rest timer change
         settings_view.rest_timer_dropdown.value = "120"
@@ -910,25 +913,28 @@ def test_tracker_timer_tick_tab_awareness():
         assert tracker.timer_display.value == "00:14"
 
 
-def test_get_default_storage_dir_mobile_and_desktop(monkeypatch):
+def test_get_default_storage_dir_mobile_and_desktop(monkeypatch, tmp_path):
     from storage import get_default_storage_dir
 
     # 1. Flet mobile runtime environment variable
-    monkeypatch.setenv("FLET_APP_STORAGE_DATA", "/data/user/0/com.datlabs.snaprep/app_flutter/data")
+    flet_data = tmp_path / "flet_data"
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(flet_data))
     path = get_default_storage_dir()
-    assert str(path) == str(Path("/data/user/0/com.datlabs.snaprep/app_flutter/data/.snap_rep"))
+    assert str(path) == str(flet_data / ".snap_rep")
 
     # 2. Android sandbox fallback
+    android_private = tmp_path / "android_private"
     monkeypatch.delenv("FLET_APP_STORAGE_DATA", raising=False)
-    monkeypatch.setenv("ANDROID_PRIVATE", "/data/user/0/com.datlabs.snaprep/files")
+    monkeypatch.setenv("ANDROID_PRIVATE", str(android_private))
     path = get_default_storage_dir()
-    assert str(path) == str(Path("/data/user/0/com.datlabs.snaprep/files/.snap_rep"))
+    assert str(path) == str(android_private / ".snap_rep")
 
     # 3. Guard against Android returning root-owned '/data'
     monkeypatch.delenv("ANDROID_PRIVATE", raising=False)
     monkeypatch.setattr(Path, "home", lambda: Path("/data"))
     path = get_default_storage_dir()
-    assert path == Path.cwd() / ".snap_rep"
+    assert path != Path("/data/.snap_rep")
+    assert path.exists()
 
 
 def test_create_backup_structure():

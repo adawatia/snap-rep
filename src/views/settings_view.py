@@ -7,6 +7,7 @@ import asyncio
 import flet as ft
 
 from components.backup_dialog import show_backup_dialog
+from components.confirm_dialog import show_confirm_dialog
 from components.export_dialog import show_export_dialog
 from components.restore_dialog import show_restore_dialog
 from config import APP_SUBTITLE, APP_TITLE, APP_VERSION, REST_TIMER_OPTIONS
@@ -22,8 +23,8 @@ class SettingsView:
         # 1. Appearance / Theme
         self.theme_dropdown = ft.Dropdown(
             label="Theme Mode",
-            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.OUTLINE),
-            value=self.state.settings.get("theme_mode", "dark"),
+            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+            value=self.state.settings.get("theme_mode", "light"),
             border={
                 ft.ControlState.DEFAULT: ft.OutlineInputBorder(
                     border_radius=12,
@@ -40,8 +41,8 @@ class SettingsView:
             dense=True,
             menu_height=220,
             options=[
+                ft.DropdownOption("light", "Light Mode (Athletic Emerald & Indigo)"),
                 ft.DropdownOption("dark", "Dark Mode (Deep Slate & Electric Indigo)"),
-                ft.DropdownOption("light", "Light Mode (Athletic Emerald)"),
                 ft.DropdownOption("system", "Follow System Theme"),
             ],
             on_select=self._on_theme_select,
@@ -51,7 +52,7 @@ class SettingsView:
         default_rest_val = str(self.state.settings.get("default_rest_timer", 60))
         self.rest_timer_dropdown = ft.Dropdown(
             label="Default Rest Timer",
-            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.OUTLINE),
+            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
             value=default_rest_val,
             border={
                 ft.ControlState.DEFAULT: ft.OutlineInputBorder(
@@ -79,14 +80,14 @@ class SettingsView:
         )
 
         # 4. Status summary labels
-        self.history_stat_text = ft.Text("", size=12, color=ft.Colors.OUTLINE)
-        self.exercises_stat_text = ft.Text("", size=12, color=ft.Colors.OUTLINE)
+        self.history_stat_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
+        self.exercises_stat_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
 
         self.root = self._build_layout()
         self.update_ui()
 
     async def _on_theme_select(self, e) -> None:
-        val = self.theme_dropdown.value or "dark"
+        val = self.theme_dropdown.value or "light"
         self.state.update_setting("theme_mode", val)
         self.page.theme_mode = resolve_theme_mode(val)
         self.page.update()
@@ -103,8 +104,23 @@ class SettingsView:
         self.state.update_setting("haptic_feedback", self.haptic_switch.value)
         await self.state.trigger_haptic("click")
 
+    def _on_clear_all_history(self, e) -> None:
+        async def do_clear():
+            await self.state.clear_history()
+            self.update_ui()
+            self.page.update()
+
+        show_confirm_dialog(
+            self.page,
+            title="Clear All History?",
+            message="This will permanently delete all recorded workout sets from your phone.",
+            confirm_text="Clear All",
+            is_destructive=True,
+            on_confirm=do_clear,
+        )
+
     def update_ui(self) -> None:
-        self.theme_dropdown.value = self.state.settings.get("theme_mode", "dark")
+        self.theme_dropdown.value = self.state.settings.get("theme_mode", "light")
         self.rest_timer_dropdown.value = str(self.state.settings.get("default_rest_timer", 60))
         self.haptic_switch.value = self.state.settings.get("haptic_feedback", True)
 
@@ -169,7 +185,7 @@ class SettingsView:
                                             ft.Text(
                                                 "Auto-initiates this rest period immediately after logging a set.",
                                                 size=11,
-                                                color=ft.Colors.OUTLINE,
+                                                color=ft.Colors.ON_SURFACE_VARIANT,
                                             ),
                                         ],
                                     ),
@@ -185,7 +201,7 @@ class SettingsView:
                                                     ft.Text(
                                                         "Tactile vibrations on counter steppers & timer completion.",
                                                         size=11,
-                                                        color=ft.Colors.OUTLINE,
+                                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                                     ),
                                                 ],
                                             ),
@@ -215,7 +231,7 @@ class SettingsView:
                                     ft.Text(
                                         "Manage your exercises, customize default reps/weights, and add custom movements in the Exercises tab.",
                                         size=12,
-                                        color=ft.Colors.OUTLINE,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
                                 ],
                             ),
@@ -240,7 +256,7 @@ class SettingsView:
                                     ft.Text(
                                         "Backup your complete workout records and custom exercises, restore from a file, or export as CSV.",
                                         size=11,
-                                        color=ft.Colors.OUTLINE,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
                                     ft.FilledButton(
                                         content=ft.Row(
@@ -268,18 +284,33 @@ class SettingsView:
                                             show_restore_dialog(self.page, self.state)
                                         ),
                                     ),
-                                    ft.TextButton(
+                                    ft.OutlinedButton(
                                         content=ft.Row(
                                             alignment=ft.MainAxisAlignment.CENTER,
                                             spacing=8,
                                             controls=[
                                                 ft.Icon(ft.Icons.TABLE_CHART_OUTLINED, size=18),
-                                                ft.Text("Export History to CSV"),
+                                                ft.Text("Export History to CSV", weight=ft.FontWeight.BOLD),
                                             ],
                                         ),
                                         on_click=lambda _: asyncio.create_task(
                                             show_export_dialog(self.page, self.state)
                                         ),
+                                    ),
+                                    ft.TextButton(
+                                        content=ft.Row(
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            spacing=8,
+                                            controls=[
+                                                ft.Icon(ft.Icons.DELETE_FOREVER, size=18, color=ft.Colors.ERROR),
+                                                ft.Text(
+                                                    "Clear All Workout History",
+                                                    color=ft.Colors.ERROR,
+                                                    weight=ft.FontWeight.BOLD,
+                                                ),
+                                            ],
+                                        ),
+                                        on_click=self._on_clear_all_history,
                                     ),
                                 ],
                             ),
@@ -303,7 +334,7 @@ class SettingsView:
                                     ft.Text(
                                         f"{APP_SUBTITLE} Built with Flet & Material 3 for Android.",
                                         size=12,
-                                        color=ft.Colors.OUTLINE,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
                                 ],
                             ),

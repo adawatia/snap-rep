@@ -36,11 +36,14 @@ path = "src"
 
 [tool.flet.android]
 split_per_abi = true
-adaptive_icon_background = "#536dfe"
+adaptive_icon_background = "#6366F1"
 
 [tool.flet.android.permission]
-"android.permission.INTERNET" = true
 "android.permission.VIBRATE" = true
+
+[tool.flet.android.signing]
+key_store = "snaprep-release.jks"
+key_alias = "snaprep"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

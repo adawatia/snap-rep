@@ -24,12 +24,12 @@ class StatsView:
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=12,
                         controls=[
-                            ft.Icon(ft.Icons.INSIGHTS, size=54, color=ft.Colors.OUTLINE),
+                            ft.Icon(ft.Icons.INSIGHTS, size=54, color=ft.Colors.ON_SURFACE_VARIANT),
                             ft.Text("No Workout Statistics Yet", size=17, weight=ft.FontWeight.BOLD),
                             ft.Text(
                                 "Log your workout sets to track total volume, sets, reps, and unlock personal records (PRs).",
                                 size=13,
-                                color=ft.Colors.OUTLINE,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
                                 text_align=ft.TextAlign.CENTER,
                             ),
                         ],
@@ -64,7 +64,7 @@ class StatsView:
                             spacing=6,
                             controls=[
                                 ft.Icon(icon, size=16, color=icon_color),
-                                ft.Text(label, size=11, color=ft.Colors.OUTLINE, weight=ft.FontWeight.W_500),
+                                ft.Text(label, size=11, color=ft.Colors.ON_SURFACE_VARIANT, weight=ft.FontWeight.W_500),
                             ],
                         ),
                         ft.Text(value, size=16, weight=ft.FontWeight.BOLD),
@@ -146,7 +146,7 @@ class StatsView:
                                     spacing=4,
                                     controls=[
                                         ft.Text(ex_name, size=15, weight=ft.FontWeight.BOLD),
-                                        ft.Text(sub_label, size=12, color=ft.Colors.OUTLINE),
+                                        ft.Text(sub_label, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                                     ],
                                 ),
                                 ft.Container(

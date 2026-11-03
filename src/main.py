@@ -31,7 +31,7 @@ async def main(page: ft.Page):
     # Theme Configuration
     page.dark_theme = get_dark_theme()
     page.theme = get_light_theme()
-    page.theme_mode = resolve_theme_mode(state.settings.get("theme_mode", "dark"))
+    page.theme_mode = resolve_theme_mode(state.settings.get("theme_mode", "light"))
 
     # Initialize Views
     tracker_view = TrackerView(page, state)

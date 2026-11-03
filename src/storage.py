@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import tempfile
 from typing import Any, List, Optional, Tuple, Union
 
 from config import DEFAULT_SETTINGS
@@ -47,26 +48,59 @@ def _is_rapid_duplicate(r1: SetRecord, r2: SetRecord) -> bool:
 
 
 def get_default_storage_dir() -> Path:
-    """Returns the writable storage directory across Desktop and Mobile (Android/iOS)."""
+    """Returns a guaranteed writable storage directory across Android, iOS, and Desktop."""
+    candidates: List[Path] = []
+
     # 1. Flet mobile runtime environment variable (persisted under application-support/data)
     flet_data = os.environ.get("FLET_APP_STORAGE_DATA")
     if flet_data:
-        return Path(flet_data) / ".snap_rep"
+        candidates.append(Path(flet_data) / ".snap_rep")
+        candidates.append(Path(flet_data))
 
     # 2. Android sandbox fallback
-    android_private = os.environ.get("ANDROID_PRIVATE") or os.environ.get("ANDROID_APP_PATH")
-    if android_private:
-        return Path(android_private) / ".snap_rep"
+    for env_var in ("ANDROID_PRIVATE", "ANDROID_APP_PATH", "APP_DATA_DIR"):
+        val = os.environ.get(env_var)
+        if val:
+            candidates.append(Path(val) / ".snap_rep")
 
-    # 3. Desktop user home (with guard against Android returning root-owned '/data')
+    # 3. User home (excluding root-level system paths such as /data, /, /root)
     try:
         home = Path.home()
-        home_normalized = str(home).replace("\\", "/").rstrip("/")
-        if home_normalized in ["", "/data"]:
-            return Path.cwd() / ".snap_rep"
-        return home / ".snap_rep"
+        home_norm = str(home).replace("\\", "/").rstrip("/")
+        if home_norm and home_norm not in ["/data", "/", "/root"]:
+            candidates.append(home / ".snap_rep")
     except Exception:
-        return Path.cwd() / ".snap_rep"
+        pass
+
+    # 4. Current working directory fallback (if not system root)
+    try:
+        cwd = Path.cwd()
+        cwd_norm = str(cwd).replace("\\", "/").rstrip("/")
+        if cwd_norm and cwd_norm not in ["/data", "/", "/root"]:
+            candidates.append(cwd / ".snap_rep")
+    except Exception:
+        pass
+
+    # 5. OS temporary directory fallback
+    candidates.append(Path(tempfile.gettempdir()) / ".snap_rep")
+
+    # Select the first directory that can be created and written to
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / ".write_probe"
+            test_file.touch(exist_ok=True)
+            test_file.unlink(missing_ok=True)
+            return candidate
+        except (PermissionError, OSError):
+            continue
+
+    fallback = Path(tempfile.gettempdir()) / ".snap_rep"
+    try:
+        fallback.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return fallback
 
 
 class AppStorage:

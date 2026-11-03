@@ -40,7 +40,7 @@ class ExercisesView:
         )
 
         # Exercises count badge & list column
-        self.count_badge = ft.Text("", size=12, color=ft.Colors.OUTLINE)
+        self.count_badge = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
         self.exercise_list_column = ft.Column(spacing=8)
 
         self.root = self._build_layout()
@@ -136,8 +136,8 @@ class ExercisesView:
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=8,
                         controls=[
-                            ft.Icon(ft.Icons.SEARCH_OFF, size=36, color=ft.Colors.OUTLINE),
-                            ft.Text("No exercises match your search.", size=14, color=ft.Colors.OUTLINE),
+                            ft.Icon(ft.Icons.SEARCH_OFF, size=36, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ft.Text("No exercises match your search.", size=14, color=ft.Colors.ON_SURFACE_VARIANT),
                         ],
                     ),
                 )
@@ -221,7 +221,7 @@ class ExercisesView:
                                             ft.Text(
                                                 f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}",
                                                 size=12,
-                                                color=ft.Colors.OUTLINE,
+                                                color=ft.Colors.ON_SURFACE_VARIANT,
                                             ),
                                         ],
                                     ),
