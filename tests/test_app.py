@@ -1064,6 +1064,27 @@ async def test_state_create_and_restore_backup():
         assert len(notifications) > 0
 
 
+def test_stats_view_rendering():
+    from views.stats_view import StatsView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # 1. Empty state
+        stats_view = StatsView(page, state)
+        assert len(stats_view.stats_column.controls) == 1
+
+        # 2. Populated with sets (weighted and bodyweight)
+        state.storage.add_record(SetRecord(exercise="Bench Press", reps=10, weight_kg=80.0))
+        state.storage.add_record(SetRecord(exercise="Push-ups", reps=25, weight_kg=0.0))
+        state.history = state.storage.load_history()
+
+        stats_view.update_ui()
+        assert len(stats_view.stats_column.controls) >= 3
+
+
 
 
 

@@ -40,7 +40,7 @@ class SettingsView:
             dense=True,
             menu_height=220,
             options=[
-                ft.DropdownOption("dark", "Dark Mode (Stealth & Neon Volt)"),
+                ft.DropdownOption("dark", "Dark Mode (Deep Slate & Electric Indigo)"),
                 ft.DropdownOption("light", "Light Mode (Athletic Emerald)"),
                 ft.DropdownOption("system", "Follow System Theme"),
             ],
