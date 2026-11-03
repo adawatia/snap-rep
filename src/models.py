@@ -66,19 +66,26 @@ class SetRecord:
             exercise=data["exercise"],
             reps=int(data["reps"]),
             weight_kg=float(data.get("weight_kg", 0.0)),
-            timestamp=data.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            timestamp=data.get(
+                "timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ),
             notes=data.get("notes"),
             set_number=int(data.get("set_number", 1)),
         )
 
 
-DEFAULT_EXERCISES: List[Exercise] = [
-    Exercise(
-        name=item.name,
-        category=item.category,
-        default_reps=item.default_reps,
-        default_weight=item.default_weight,
-        is_custom=False,
-    )
-    for item in DEFAULT_EXERCISES_DATA
-]
+def get_default_exercises() -> List[Exercise]:
+    """Returns a fresh list of default Exercise instances."""
+    return [
+        Exercise(
+            name=item.name,
+            category=item.category,
+            default_reps=item.default_reps,
+            default_weight=item.default_weight,
+            is_custom=False,
+        )
+        for item in DEFAULT_EXERCISES_DATA
+    ]
+
+
+DEFAULT_EXERCISES: List[Exercise] = get_default_exercises()

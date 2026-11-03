@@ -789,7 +789,7 @@ async def test_tracker_filled_button_and_history_badges():
         state.timer_seconds_remaining = 45
         tracker._sync_log_btn_state()
         assert tracker.log_btn.disabled is True
-        assert "REST 45s (LOCKED)" in tracker.log_btn.content
+        assert tracker.log_btn.content == "REST IN PROGRESS"
 
         # Stop timer -> button reverts
         state.timer_running = False
@@ -818,6 +818,97 @@ async def test_tracker_filled_button_and_history_badges():
             left_row = card_content.controls[0]
             set_badge = left_row.controls[0]
             assert "SET" in set_badge.content.value
+
+
+@pytest.mark.asyncio
+async def test_log_button_static_rest_label_during_timer():
+    from views.tracker_view import TrackerView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        page = MockPage()
+        tracker = TrackerView(page, state)
+
+        # Set timer running
+        state.timer_running = True
+        state.timer_seconds_remaining = 30
+        tracker._sync_log_btn_state()
+        assert tracker.log_btn.content == "REST IN PROGRESS"
+        assert tracker.log_btn.disabled is True
+
+        # Simulate ticks: timer_display updates, but log_btn stays static (no countdown in button)
+        state.timer_seconds_remaining = 29
+        tracker._on_timer_tick()
+        assert tracker.timer_display.value == "00:29"
+        assert tracker.log_btn.content == "REST IN PROGRESS"
+
+        state.timer_seconds_remaining = 28
+        tracker._on_timer_tick()
+        assert tracker.timer_display.value == "00:28"
+        assert tracker.log_btn.content == "REST IN PROGRESS"
+
+
+def test_storage_in_memory_caching_and_fast_dedup():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+
+        # Initially empty cache
+        assert storage._history_cache is None
+        history = storage.load_history()
+        assert history == []
+        assert storage._history_cache == []
+
+        # Add record
+        r1 = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0)
+        storage.add_record(r1)
+        assert len(storage._history_cache) == 1
+
+        # load_history uses in-memory cache directly
+        loaded = storage.load_history()
+        assert len(loaded) == 1
+        assert loaded[0].exercise == "Push-ups"
+
+        # Settings cache
+        settings = storage.load_settings()
+        assert storage._settings_cache is not None
+        storage.save_settings({"theme_mode": "dark"})
+        assert storage._settings_cache["theme_mode"] == "dark"
+
+        # Exercises cache
+        exercises = storage.load_exercises()
+        assert storage._exercises_cache is not None
+        assert len(exercises) >= 10
+
+
+def test_tracker_timer_tick_tab_awareness():
+    from views.tracker_view import TrackerView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        update_calls = 0
+        class TrackingPage(MockPage):
+            def update(self):
+                nonlocal update_calls
+                update_calls += 1
+
+        page = TrackingPage()
+        tracker = TrackerView(page, state)
+
+        # Active tab: _on_timer_tick updates timer_display
+        tracker.is_active = True
+        state.timer_seconds_remaining = 15
+        tracker._on_timer_tick()
+        assert tracker.timer_display.value == "00:15"
+
+        # Inactive tab (user on History or Stats): _on_timer_tick skips UI update
+        tracker.is_active = False
+        state.timer_seconds_remaining = 14
+        tracker._on_timer_tick()
+        assert tracker.timer_display.value == "00:14"
+
 
 
 

@@ -108,6 +108,7 @@ class TrackerView:
 
         self._refresh_timer_pills()
         self._is_logging: bool = False  # synchronous in-flight guard
+        self.is_active: bool = True  # whether Tracker tab is currently visible
         self.log_btn = self._build_log_btn()
         self.root = self._build_layout()
         self.state.subscribe_timer(self._on_timer_tick)
@@ -116,12 +117,10 @@ class TrackerView:
         mins = self.state.timer_seconds_remaining // 60
         secs = self.state.timer_seconds_remaining % 60
         self.timer_display.value = f"{mins:02d}:{secs:02d}"
-        # Also keep the log button state in sync during timer ticks
-        self._sync_log_btn_state()
-        if self.page:
+        # Only update the timer display control when the Tracker tab is active
+        if self.page and getattr(self, "is_active", True):
             try:
                 self.timer_display.update()
-                self.log_btn.update()
             except Exception:
                 pass
 
@@ -160,7 +159,7 @@ class TrackerView:
         """Sync the log button appearance to match current blocked/allowed state."""
         blocked = self._is_log_blocked()
         if blocked and self.state.timer_running:
-            label = f"REST {self.state.timer_seconds_remaining}s (LOCKED)"
+            label = "REST IN PROGRESS"
             icon = ft.Icons.TIMER
         elif blocked:
             label = "LOGGING..."

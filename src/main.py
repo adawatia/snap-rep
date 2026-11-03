@@ -59,6 +59,8 @@ async def main(page: ft.Page):
     def on_nav_change(e):
         nonlocal current_tab_index
         current_tab_index = e.control.selected_index
+        # Sync active tab to optimize background rendering
+        tracker_view.is_active = (current_tab_index == 0)
         content_area.content = view_instances[current_tab_index].root
         view_instances[current_tab_index].update_ui()
         page.update()

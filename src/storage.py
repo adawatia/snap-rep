@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 from config import DEFAULT_SETTINGS
-from models import DEFAULT_EXERCISES, Exercise, SetRecord
+from models import DEFAULT_EXERCISES, Exercise, SetRecord, get_default_exercises
 
 
 def _atomic_write_json(file_path: Path, data: Any) -> None:
@@ -21,6 +21,29 @@ def _atomic_write_json(file_path: Path, data: Any) -> None:
         f.flush()
         os.fsync(f.fileno())
     temp_path.replace(file_path)
+
+
+def _is_rapid_duplicate(r1: SetRecord, r2: SetRecord) -> bool:
+    """Fast check for duplicate workout set within 3.0s, optimizing out strptime when possible."""
+    if (
+        r1.exercise.strip().lower() != r2.exercise.strip().lower()
+        or r1.reps != r2.reps
+        or abs(r1.weight_kg - r2.weight_kg) >= 0.01
+    ):
+        return False
+    # Exact string match
+    if r1.timestamp == r2.timestamp:
+        return True
+    # Fast date pre-filter: must be on the same date (YYYY-MM-DD)
+    if len(r1.timestamp) >= 10 and len(r2.timestamp) >= 10:
+        if r1.timestamp[:10] != r2.timestamp[:10]:
+            return False
+    try:
+        t1 = datetime.strptime(r1.timestamp, "%Y-%m-%d %H:%M:%S")
+        t2 = datetime.strptime(r2.timestamp, "%Y-%m-%d %H:%M:%S")
+        return abs((t1 - t2).total_seconds()) < 3.0
+    except Exception:
+        return False
 
 
 class AppStorage:
@@ -35,10 +58,19 @@ class AppStorage:
         self.exports_dir = self.storage_dir / "exports"
         self.exports_dir.mkdir(parents=True, exist_ok=True)
 
+        # In-memory write-through caches
+        self._history_cache: Optional[List[SetRecord]] = None
+        self._settings_cache: Optional[dict] = None
+        self._exercises_cache: Optional[List[Exercise]] = None
+
     # --- History Operations ---
 
     def load_history(self) -> List[SetRecord]:
+        if self._history_cache is not None:
+            return list(self._history_cache)
+
         if not self.history_file.exists():
+            self._history_cache = []
             return []
         try:
             with open(self.history_file, "r", encoding="utf-8") as f:
@@ -50,34 +82,13 @@ class AppStorage:
                         rec = SetRecord.from_dict(item)
                         if rec.id in seen_ids:
                             continue
-                        # Deduplicate rapid duplicate entries saved with different IDs
-                        is_dup = False
-                        for existing in records:
-                            if (
-                                existing.exercise.strip().lower()
-                                == rec.exercise.strip().lower()
-                                and existing.reps == rec.reps
-                                and abs(existing.weight_kg - rec.weight_kg) < 0.01
-                            ):
-                                try:
-                                    t1 = datetime.strptime(
-                                        existing.timestamp, "%Y-%m-%d %H:%M:%S"
-                                    )
-                                    t2 = datetime.strptime(
-                                        rec.timestamp, "%Y-%m-%d %H:%M:%S"
-                                    )
-                                    if abs((t1 - t2).total_seconds()) < 3.0:
-                                        is_dup = True
-                                        break
-                                except Exception:
-                                    if existing.timestamp == rec.timestamp:
-                                        is_dup = True
-                                        break
-                        if not is_dup:
+                        if not any(_is_rapid_duplicate(existing, rec) for existing in records):
                             seen_ids.add(rec.id)
                             records.append(rec)
-                return records
+                self._history_cache = records
+                return list(records)
         except Exception:
+            self._history_cache = []
             return []
 
     def save_history(self, records: List[SetRecord]) -> None:
@@ -87,28 +98,10 @@ class AppStorage:
             for r in records:
                 if r.id in seen_ids:
                     continue
-                is_dup = False
-                for existing in deduped:
-                    if (
-                        existing.exercise.strip().lower() == r.exercise.strip().lower()
-                        and existing.reps == r.reps
-                        and abs(existing.weight_kg - r.weight_kg) < 0.01
-                    ):
-                        try:
-                            t1 = datetime.strptime(
-                                existing.timestamp, "%Y-%m-%d %H:%M:%S"
-                            )
-                            t2 = datetime.strptime(r.timestamp, "%Y-%m-%d %H:%M:%S")
-                            if abs((t1 - t2).total_seconds()) < 3.0:
-                                is_dup = True
-                                break
-                        except Exception:
-                            if existing.timestamp == r.timestamp:
-                                is_dup = True
-                                break
-                if not is_dup:
+                if not any(_is_rapid_duplicate(existing, r) for existing in deduped):
                     seen_ids.add(r.id)
                     deduped.append(r)
+            self._history_cache = deduped
             _atomic_write_json(self.history_file, [r.to_dict() for r in deduped])
         except Exception:
             pass
@@ -117,34 +110,22 @@ class AppStorage:
         records = self.load_history()
         # 1. Guard against duplicate ID
         if any(r.id == record.id for r in records):
-            return records
+            return list(records)
         # 2. Guard against duplicate set within 3.0s of any recent record
-        if records:
-            for existing in records:
-                if (
-                    existing.exercise.strip().lower() == record.exercise.strip().lower()
-                    and existing.reps == record.reps
-                    and abs(existing.weight_kg - record.weight_kg) < 0.01
-                ):
-                    try:
-                        t_existing = datetime.strptime(existing.timestamp, "%Y-%m-%d %H:%M:%S")
-                        t_new = datetime.strptime(record.timestamp, "%Y-%m-%d %H:%M:%S")
-                        if abs((t_new - t_existing).total_seconds()) < 3.0:
-                            return records
-                    except Exception:
-                        if existing.timestamp == record.timestamp:
-                            return records
+        if any(_is_rapid_duplicate(existing, record) for existing in records):
+            return list(records)
         records.insert(0, record)
         self.save_history(records)
-        return self.load_history()
+        return list(self._history_cache or records)
 
     def delete_set(self, record_id: str) -> List[SetRecord]:
         records = self.load_history()
         records = [r for r in records if r.id != record_id]
         self.save_history(records)
-        return records
+        return list(self._history_cache or records)
 
     def clear_history(self) -> None:
+        self._history_cache = []
         if self.history_file.exists():
             try:
                 self.history_file.unlink()
@@ -154,9 +135,12 @@ class AppStorage:
     # --- Exercises Operations ---
 
     def load_exercises(self) -> List[Exercise]:
+        if self._exercises_cache is not None:
+            return list(self._exercises_cache)
         if not self.exercises_file.exists():
-            self.save_exercises(DEFAULT_EXERCISES)
-            return list(DEFAULT_EXERCISES)
+            defaults = get_default_exercises()
+            self.save_exercises(defaults)
+            return list(defaults)
         try:
             with open(self.exercises_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -164,13 +148,16 @@ class AppStorage:
                     Exercise.from_dict(item) for item in data if isinstance(item, dict)
                 ]
                 if not loaded:
-                    self.save_exercises(DEFAULT_EXERCISES)
-                    return list(DEFAULT_EXERCISES)
-                return loaded
+                    defaults = get_default_exercises()
+                    self.save_exercises(defaults)
+                    return list(defaults)
+                self._exercises_cache = loaded
+                return list(loaded)
         except Exception:
-            return list(DEFAULT_EXERCISES)
+            return get_default_exercises()
 
     def save_exercises(self, exercises: List[Exercise]) -> None:
+        self._exercises_cache = list(exercises)
         try:
             _atomic_write_json(self.exercises_file, [e.to_dict() for e in exercises])
         except Exception:
@@ -205,7 +192,7 @@ class AppStorage:
             if not (e.name.strip().lower() == clean_name and e.is_custom)
         ]
         if not updated:
-            updated = list(DEFAULT_EXERCISES)
+            updated = get_default_exercises()
         self.save_exercises(updated)
         return updated
 
@@ -277,16 +264,23 @@ class AppStorage:
     # --- Settings Operations ---
 
     def load_settings(self) -> dict:
+        if self._settings_cache is not None:
+            return dict(self._settings_cache)
         if not self.settings_file.exists():
+            self._settings_cache = dict(DEFAULT_SETTINGS)
             return dict(DEFAULT_SETTINGS)
         try:
             with open(self.settings_file, "r", encoding="utf-8") as f:
                 settings = json.load(f)
-                return {**DEFAULT_SETTINGS, **settings}
+                merged = {**DEFAULT_SETTINGS, **settings}
+                self._settings_cache = merged
+                return dict(merged)
         except Exception:
+            self._settings_cache = dict(DEFAULT_SETTINGS)
             return dict(DEFAULT_SETTINGS)
 
     def save_settings(self, settings: dict) -> None:
+        self._settings_cache = dict(settings)
         try:
             _atomic_write_json(self.settings_file, settings)
         except Exception:

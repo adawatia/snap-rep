@@ -160,6 +160,12 @@ class HistoryView:
         self.next_month_btn.disabled = is_next_disabled
         self.next_month_btn.icon_color = ft.Colors.OUTLINE_VARIANT if is_next_disabled else None
 
+        # Check memoization key to avoid rebuilding 40+ child controls when month, history length, and selection are identical
+        cal_key = (self.cal_year, self.cal_month, len(self.state.history), self.selected_date_str)
+        if getattr(self, "_last_cal_key", None) == cal_key and len(self.calendar_grid.controls) > 0:
+            return
+        self._last_cal_key = cal_key
+
         # Fast set lookup for workout presence
         workout_dates = {rec.timestamp[:10] for rec in self.state.history if len(rec.timestamp) >= 10}
         today_str = today.strftime("%Y-%m-%d")
@@ -278,31 +284,10 @@ class HistoryView:
             self._render_all_view()
 
     def _render_day_view(self) -> None:
-        # Filter sets for selected day, strictly deduplicating by unique record ID and timestamp
-        seen_ids = set()
-        day_sets: List[SetRecord] = []
-        for r in self.state.history:
-            if r.timestamp.startswith(self.selected_date_str) and r.id not in seen_ids:
-                is_dup = False
-                for ex in day_sets:
-                    if (
-                        ex.exercise.strip().lower() == r.exercise.strip().lower()
-                        and ex.reps == r.reps
-                        and abs(ex.weight_kg - r.weight_kg) < 0.01
-                    ):
-                        try:
-                            t1 = datetime.strptime(ex.timestamp, "%Y-%m-%d %H:%M:%S")
-                            t2 = datetime.strptime(r.timestamp, "%Y-%m-%d %H:%M:%S")
-                            if abs((t1 - t2).total_seconds()) < 3.0:
-                                is_dup = True
-                                break
-                        except Exception:
-                            if ex.timestamp == r.timestamp:
-                                is_dup = True
-                                break
-                if not is_dup:
-                    seen_ids.add(r.id)
-                    day_sets.append(r)
+        # Fast linear filter (deduplication is guaranteed by AppStorage)
+        day_sets: List[SetRecord] = [
+            r for r in self.state.history if r.timestamp.startswith(self.selected_date_str)
+        ]
 
         try:
             sel_date_obj = datetime.strptime(self.selected_date_str, "%Y-%m-%d")
@@ -435,31 +420,7 @@ class HistoryView:
 
     def _render_all_view(self) -> None:
         self.selected_date_label.value = "All Workout History"
-
-        seen_ids = set()
-        deduped_history: List[SetRecord] = []
-        for r in self.state.history:
-            if r.id not in seen_ids:
-                is_dup = False
-                for ex in deduped_history:
-                    if (
-                        ex.exercise.strip().lower() == r.exercise.strip().lower()
-                        and ex.reps == r.reps
-                        and abs(ex.weight_kg - r.weight_kg) < 0.01
-                    ):
-                        try:
-                            t1 = datetime.strptime(ex.timestamp, "%Y-%m-%d %H:%M:%S")
-                            t2 = datetime.strptime(r.timestamp, "%Y-%m-%d %H:%M:%S")
-                            if abs((t1 - t2).total_seconds()) < 3.0:
-                                is_dup = True
-                                break
-                        except Exception:
-                            if ex.timestamp == r.timestamp:
-                                is_dup = True
-                                break
-                if not is_dup:
-                    seen_ids.add(r.id)
-                    deduped_history.append(r)
+        deduped_history: List[SetRecord] = list(self.state.history)
 
         total_count = len(deduped_history)
         self.selected_date_stats.value = f"Showing latest {min(self._all_history_limit, total_count)} of {total_count} total sets"
@@ -586,9 +547,13 @@ class HistoryView:
 
     def update_ui(self) -> None:
         today_str = date.today().strftime("%Y-%m-%d")
-        today_reps = sum(r.reps for r in self.state.history if r.timestamp.startswith(today_str))
+        today_reps = 0
+        total_vol = 0.0
+        for r in self.state.history:
+            if r.timestamp.startswith(today_str):
+                today_reps += r.reps
+            total_vol += r.reps * r.weight_kg
         total_sets = len(self.state.history)
-        total_vol = sum(r.reps * r.weight_kg for r in self.state.history)
 
         self.today_reps_text.value = str(today_reps)
         self.total_sets_text.value = str(total_sets)
