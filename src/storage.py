@@ -6,7 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 from config import DEFAULT_SETTINGS
 from models import DEFAULT_EXERCISES, Exercise, SetRecord, get_default_exercises
@@ -80,6 +80,8 @@ class AppStorage:
         self.exercises_file = self.storage_dir / "exercises.json"
         self.exports_dir = self.storage_dir / "exports"
         self.exports_dir.mkdir(parents=True, exist_ok=True)
+        self.backups_dir = self.storage_dir / "backups"
+        self.backups_dir.mkdir(parents=True, exist_ok=True)
 
         # In-memory write-through caches
         self._history_cache: Optional[List[SetRecord]] = None
@@ -308,3 +310,157 @@ class AppStorage:
             _atomic_write_json(self.settings_file, settings)
         except Exception:
             pass
+
+    # --- Backup & Restore Operations ---
+
+    def create_backup(self) -> Tuple[Path, str, dict]:
+        """Creates a portable full JSON backup of history, exercises, and settings."""
+        records = self.load_history()
+        exercises = self.load_exercises()
+        settings = self.load_settings()
+
+        backup_data = {
+            "version": 1,
+            "app": "SnapRep",
+            "app_version": "0.1.0",
+            "created_at": datetime.now().isoformat(),
+            "history": [r.to_dict() for r in records],
+            "exercises": [e.to_dict() for e in exercises],
+            "settings": settings,
+        }
+
+        json_str = json.dumps(backup_data, indent=2, ensure_ascii=False)
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = self.backups_dir / f"snaprep_backup_{timestamp_str}.json"
+        try:
+            _atomic_write_json(backup_file, backup_data)
+        except Exception:
+            pass
+
+        return backup_file, json_str, backup_data
+
+    def get_local_backups(self) -> List[Path]:
+        """Returns list of local backup files sorted newest first."""
+        if not self.backups_dir.exists():
+            return []
+        files = list(self.backups_dir.glob("snaprep_backup_*.json"))
+        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return files
+
+    def restore_backup(
+        self,
+        backup_data: Union[dict, str, list],
+        mode: str = "merge",
+    ) -> Tuple[int, int, bool]:
+        """Restore history, exercises, and settings from a backup.
+
+        Args:
+            backup_data: JSON string, parsed dict, or raw list of records.
+            mode: 'merge' (default, non-destructive deduplication) or 'replace' (overwrites current data).
+
+        Returns:
+            Tuple of (restored_sets_count, restored_exercises_count, settings_restored_bool).
+        """
+        if isinstance(backup_data, str):
+            backup_data = json.loads(backup_data)
+
+        if isinstance(backup_data, list):
+            history_items = backup_data
+            exercise_items = []
+            settings_items = {}
+        elif isinstance(backup_data, dict):
+            history_items = backup_data.get("history", [])
+            exercise_items = backup_data.get("exercises", [])
+            settings_items = backup_data.get("settings", {})
+        else:
+            raise ValueError("Invalid backup format: expected JSON object or array.")
+
+        # 1. Parse valid SetRecords
+        new_records: List[SetRecord] = []
+        for item in history_items:
+            if isinstance(item, dict):
+                try:
+                    new_records.append(SetRecord.from_dict(item))
+                except Exception:
+                    continue
+
+        # 2. Parse valid Exercises
+        new_exercises: List[Exercise] = []
+        for item in exercise_items:
+            if isinstance(item, dict):
+                try:
+                    new_exercises.append(Exercise.from_dict(item))
+                except Exception:
+                    continue
+
+        restored_sets = 0
+        restored_exercises = 0
+        settings_restored = False
+
+        if mode == "replace":
+            # Overwrite history
+            self.save_history(new_records)
+            restored_sets = len(new_records)
+
+            # Rebuild exercises, preserving standard defaults
+            base_exercises = get_default_exercises()
+            existing_names = {e.name.strip().lower() for e in base_exercises}
+            final_exercises = list(base_exercises)
+            for ex in new_exercises:
+                clean_name = ex.name.strip().lower()
+                if clean_name not in existing_names:
+                    final_exercises.append(ex)
+                    existing_names.add(clean_name)
+                    restored_exercises += 1
+                else:
+                    for target in final_exercises:
+                        if target.name.strip().lower() == clean_name:
+                            target.default_reps = ex.default_reps
+                            target.default_weight = ex.default_weight
+            self.save_exercises(final_exercises)
+
+            # Replace settings
+            if settings_items and isinstance(settings_items, dict):
+                merged_settings = {**DEFAULT_SETTINGS, **settings_items}
+                self.save_settings(merged_settings)
+                settings_restored = True
+
+        else:  # mode == "merge"
+            current_history = self.load_history()
+            seen_ids = {r.id for r in current_history}
+            merged_history = list(current_history)
+
+            for rec in new_records:
+                if rec.id not in seen_ids and not any(
+                    _is_rapid_duplicate(existing, rec) for existing in merged_history
+                ):
+                    seen_ids.add(rec.id)
+                    merged_history.append(rec)
+                    restored_sets += 1
+
+            merged_history.sort(key=lambda r: r.timestamp, reverse=True)
+            self.save_history(merged_history)
+
+            current_exercises = self.load_exercises()
+            curr_names = {e.name.strip().lower() for e in current_exercises}
+            merged_exercises = list(current_exercises)
+
+            for ex in new_exercises:
+                clean_name = ex.name.strip().lower()
+                if clean_name not in curr_names:
+                    curr_names.add(clean_name)
+                    merged_exercises.append(ex)
+                    restored_exercises += 1
+
+            self.save_exercises(merged_exercises)
+
+            if settings_items and isinstance(settings_items, dict):
+                current_settings = self.load_settings()
+                for k, v in settings_items.items():
+                    if k not in current_settings:
+                        current_settings[k] = v
+                        settings_restored = True
+                if settings_restored:
+                    self.save_settings(current_settings)
+
+        return restored_sets, restored_exercises, settings_restored

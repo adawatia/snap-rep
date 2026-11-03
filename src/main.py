@@ -18,13 +18,15 @@ async def main(page: ft.Page):
     # Initialize Services
     haptic = ft.HapticFeedback()
     clipboard = ft.Clipboard()
-    page.services.extend([haptic, clipboard])
+    file_picker = ft.FilePicker()
+    page.services.extend([haptic, clipboard, file_picker])
 
     # Initialize State
     storage = AppStorage()
     state = AppState(storage=storage)
     state.haptic = haptic
     state.clipboard = clipboard
+    state.file_picker = file_picker
 
     # Theme Configuration
     page.dark_theme = get_dark_theme()

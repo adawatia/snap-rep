@@ -45,6 +45,7 @@ class AppState:
         # Services
         self.haptic: Optional[ft.HapticFeedback] = None
         self.clipboard: Optional[ft.Clipboard] = None
+        self.file_picker: Optional[ft.FilePicker] = None
 
         # Listeners for UI reactivity
         self._listeners: List[Callable[[], None]] = []
@@ -377,6 +378,40 @@ class AppState:
 
         await self.trigger_haptic("vibrate")
         return export_file, csv_content, copied
+
+    async def create_backup(self) -> Tuple[Path, str, dict, bool]:
+        """Creates a portable full JSON backup of history, exercises, and settings."""
+        backup_file, json_str, backup_data = self.storage.create_backup()
+        copied = False
+        if self.clipboard:
+            try:
+                await self.clipboard.set(json_str)
+                copied = True
+            except Exception:
+                pass
+        await self.trigger_haptic("vibrate")
+        return backup_file, json_str, backup_data, copied
+
+    async def restore_backup(
+        self,
+        backup_data: Any,
+        mode: str = "merge",
+    ) -> Tuple[int, int, bool]:
+        """Restores data from a backup and synchronizes the active state."""
+        restored_sets, restored_exercises, settings_restored = self.storage.restore_backup(
+            backup_data, mode=mode
+        )
+        self.history = self.storage.load_history()
+        self.exercises = self.storage.load_exercises()
+        if not self.exercises:
+            self.exercises = [
+                Exercise(name="Push-ups", category="Calisthenics", default_reps=15, default_weight=0.0)
+            ]
+        self.settings = self.storage.load_settings()
+        self._recalculate_current_set_number()
+        await self.trigger_haptic("vibrate")
+        self.notify()
+        return restored_sets, restored_exercises, settings_restored
 
     # --- Settings Management ---
 

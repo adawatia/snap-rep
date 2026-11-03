@@ -931,6 +931,139 @@ def test_get_default_storage_dir_mobile_and_desktop(monkeypatch):
     assert path == Path.cwd() / ".snap_rep"
 
 
+def test_create_backup_structure():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        storage.add_record(SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0))
+        storage.add_exercise(Exercise(name="Muscle-ups", category="Back", default_reps=5, default_weight=0.0))
+        storage.save_settings({"theme_mode": "light", "default_rest_timer": 90})
+
+        backup_file, json_str, backup_data = storage.create_backup()
+
+        assert backup_file.exists()
+        assert backup_file.parent == storage.backups_dir
+        assert backup_data["app"] == "SnapRep"
+        assert backup_data["version"] == 1
+        assert len(backup_data["history"]) == 1
+        assert any(e["name"] == "Muscle-ups" for e in backup_data["exercises"])
+        assert backup_data["settings"]["theme_mode"] == "light"
+        assert backup_data["settings"]["default_rest_timer"] == 90
+
+        # Verify get_local_backups
+        backups = storage.get_local_backups()
+        assert len(backups) == 1
+        assert backups[0] == backup_file
+
+
+def test_restore_backup_merge_mode():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        # Existing set
+        rec1 = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, timestamp="2026-11-01 10:00:00")
+        storage.add_record(rec1)
+
+        # Backup has rec1 AND rec2, plus a custom exercise
+        rec2 = SetRecord(exercise="Pull-ups", reps=10, weight_kg=0.0, timestamp="2026-11-02 10:00:00")
+        backup_dict = {
+            "version": 1,
+            "app": "SnapRep",
+            "history": [rec1.to_dict(), rec2.to_dict()],
+            "exercises": [
+                {"name": "Pike Push-ups", "category": "Shoulders", "default_reps": 12, "default_weight": 0.0, "is_custom": True}
+            ],
+            "settings": {"default_rest_timer": 45},
+        }
+
+        restored_sets, restored_ex, settings_done = storage.restore_backup(backup_dict, mode="merge")
+
+        assert restored_sets == 1  # Only rec2 added, rec1 duplicate was skipped
+        assert restored_ex == 1    # Pike Push-ups added
+        history = storage.load_history()
+        assert len(history) == 2
+        assert any(r.exercise == "Pull-ups" for r in history)
+        assert any(r.exercise == "Push-ups" for r in history)
+        assert storage.has_exercise("Pike Push-ups")
+
+
+def test_restore_backup_replace_mode():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        old_rec = SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0, timestamp="2026-11-01 10:00:00")
+        storage.add_record(old_rec)
+
+        new_rec = SetRecord(exercise="Deadlift", reps=5, weight_kg=120.0, timestamp="2026-11-03 10:00:00")
+        backup_dict = {
+            "version": 1,
+            "app": "SnapRep",
+            "history": [new_rec.to_dict()],
+            "exercises": [
+                {"name": "Trap Bar Deadlift", "category": "Back", "default_reps": 5, "default_weight": 100.0, "is_custom": True}
+            ],
+            "settings": {"theme_mode": "light", "default_rest_timer": 120},
+        }
+
+        restored_sets, restored_ex, settings_done = storage.restore_backup(backup_dict, mode="replace")
+
+        assert restored_sets == 1
+        history = storage.load_history()
+        assert len(history) == 1
+        assert history[0].exercise == "Deadlift"
+        assert not any(r.exercise == "Push-ups" for r in history)
+        assert storage.has_exercise("Trap Bar Deadlift")
+        assert storage.load_settings()["theme_mode"] == "light"
+        assert storage.load_settings()["default_rest_timer"] == 120
+
+
+def test_restore_raw_history_list():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        rec1 = SetRecord(exercise="Squat", reps=10, weight_kg=80.0, timestamp="2026-11-02 12:00:00")
+        raw_list = [rec1.to_dict()]
+
+        restored_sets, restored_ex, settings_done = storage.restore_backup(raw_list, mode="merge")
+        assert restored_sets == 1
+        assert len(storage.load_history()) == 1
+        assert storage.load_history()[0].exercise == "Squat"
+
+
+def test_restore_corrupted_json():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        with pytest.raises(Exception):
+            storage.restore_backup("NOT_VALID_JSON{", mode="merge")
+        with pytest.raises(ValueError):
+            storage.restore_backup(12345, mode="merge")
+
+
+@pytest.mark.asyncio
+async def test_state_create_and_restore_backup():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        notifications = []
+        state.subscribe(lambda: notifications.append(True))
+
+        state.current_reps = 12
+        state.current_weight = 0.0
+        success, msg = await state.log_set()
+        assert success is True
+        assert len(state.history) == 1
+
+        backup_file, json_str, backup_data, copied = await state.create_backup()
+        assert backup_file.exists()
+        assert state.current_exercise.name in json_str
+
+        # Clear history
+        await state.clear_history()
+        assert len(state.history) == 0
+
+        # Restore from backup JSON string
+        restored_sets, restored_ex, settings_done = await state.restore_backup(json_str, mode="merge")
+        assert restored_sets == 1
+        assert len(state.history) == 1
+        assert len(notifications) > 0
+
+
 
 
 

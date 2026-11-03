@@ -6,7 +6,9 @@ Streamlined and decluttered with the dedicated Exercises tab.
 import asyncio
 import flet as ft
 
+from components.backup_dialog import show_backup_dialog
 from components.export_dialog import show_export_dialog
+from components.restore_dialog import show_restore_dialog
 from config import APP_SUBTITLE, APP_TITLE, APP_VERSION, REST_TIMER_OPTIONS
 from state import AppState
 from theme import resolve_theme_mode
@@ -225,7 +227,7 @@ class SettingsView:
                         content=ft.Container(
                             padding=16,
                             content=ft.Column(
-                                spacing=10,
+                                spacing=12,
                                 controls=[
                                     ft.Row(
                                         spacing=8,
@@ -235,22 +237,49 @@ class SettingsView:
                                         ],
                                     ),
                                     self.history_stat_text,
-                                    ft.Button(
+                                    ft.Text(
+                                        "Backup your complete workout records and custom exercises, restore from a file, or export as CSV.",
+                                        size=11,
+                                        color=ft.Colors.OUTLINE,
+                                    ),
+                                    ft.FilledButton(
                                         content=ft.Row(
+                                            alignment=ft.MainAxisAlignment.CENTER,
                                             spacing=8,
                                             controls=[
-                                                ft.Icon(ft.Icons.DOWNLOAD, size=18),
-                                                ft.Text("Export History to CSV", weight=ft.FontWeight.BOLD),
+                                                ft.Icon(ft.Icons.BACKUP, size=18),
+                                                ft.Text("Backup Data (JSON)", weight=ft.FontWeight.BOLD),
+                                            ],
+                                        ),
+                                        on_click=lambda _: asyncio.create_task(
+                                            show_backup_dialog(self.page, self.state)
+                                        ),
+                                    ),
+                                    ft.OutlinedButton(
+                                        content=ft.Row(
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            spacing=8,
+                                            controls=[
+                                                ft.Icon(ft.Icons.RESTORE, size=18),
+                                                ft.Text("Restore Data", weight=ft.FontWeight.BOLD),
+                                            ],
+                                        ),
+                                        on_click=lambda _: asyncio.create_task(
+                                            show_restore_dialog(self.page, self.state)
+                                        ),
+                                    ),
+                                    ft.TextButton(
+                                        content=ft.Row(
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                            spacing=8,
+                                            controls=[
+                                                ft.Icon(ft.Icons.TABLE_CHART_OUTLINED, size=18),
+                                                ft.Text("Export History to CSV"),
                                             ],
                                         ),
                                         on_click=lambda _: asyncio.create_task(
                                             show_export_dialog(self.page, self.state)
                                         ),
-                                    ),
-                                    ft.Text(
-                                        "Exports your complete workout set history with timestamps and volumes.",
-                                        size=11,
-                                        color=ft.Colors.OUTLINE,
                                     ),
                                 ],
                             ),
