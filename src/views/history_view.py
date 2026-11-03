@@ -52,6 +52,7 @@ class HistoryView:
         self.selected_date_label = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
         self.selected_date_stats = ft.Text("", size=12, color=ft.Colors.OUTLINE)
         self.day_exercise_list = ft.Column(spacing=8)
+        self.day_exercise_container = ft.Container(content=self.day_exercise_list)
 
         # View toggle
         self.day_view_btn = ft.Container()
@@ -330,7 +331,8 @@ class HistoryView:
                     ),
                 )
             )
-            self.day_exercise_list.controls = cards
+            self.day_exercise_list = ft.Column(spacing=8, controls=cards)
+            self.day_exercise_container.content = self.day_exercise_list
             return
 
         total_day_reps = sum(r.reps for r in day_sets)
@@ -428,7 +430,8 @@ class HistoryView:
                 )
             )
 
-        self.day_exercise_list.controls = cards
+        self.day_exercise_list = ft.Column(spacing=8, controls=cards)
+        self.day_exercise_container.content = self.day_exercise_list
 
     def _render_all_view(self) -> None:
         self.selected_date_label.value = "All Workout History"
@@ -471,7 +474,8 @@ class HistoryView:
                     content=ft.Text("No sets recorded yet.", size=13, color=ft.Colors.OUTLINE),
                 )
             )
-            self.day_exercise_list.controls = cards
+            self.day_exercise_list = ft.Column(spacing=8, controls=cards)
+            self.day_exercise_container.content = self.day_exercise_list
             return
 
         chrono_all = sorted(deduped_history, key=lambda s: s.timestamp)
@@ -577,7 +581,8 @@ class HistoryView:
                 )
             )
 
-        self.day_exercise_list.controls = cards
+        self.day_exercise_list = ft.Column(spacing=8, controls=cards)
+        self.day_exercise_container.content = self.day_exercise_list
 
     def update_ui(self) -> None:
         today_str = date.today().strftime("%Y-%m-%d")
@@ -756,7 +761,7 @@ class HistoryView:
                     ),
 
                     # 5. Scalable Exercise / Sets List
-                    self.day_exercise_list,
+                    self.day_exercise_container,
                 ],
             ),
         )

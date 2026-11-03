@@ -91,6 +91,6 @@ async def main(page: ft.Page):
     )
 
 
-# App entry point - full width log button update
+# App entry point - container refresh update
 if __name__ == "__main__":
     ft.run(main)

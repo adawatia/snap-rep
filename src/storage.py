@@ -118,25 +118,25 @@ class AppStorage:
         # 1. Guard against duplicate ID
         if any(r.id == record.id for r in records):
             return records
-        # 2. Guard against duplicate set within 3.0s of most recent record
+        # 2. Guard against duplicate set within 3.0s of any recent record
         if records:
-            latest = records[0]
-            if (
-                latest.exercise.strip().lower() == record.exercise.strip().lower()
-                and latest.reps == record.reps
-                and abs(latest.weight_kg - record.weight_kg) < 0.01
-            ):
-                try:
-                    t_latest = datetime.strptime(latest.timestamp, "%Y-%m-%d %H:%M:%S")
-                    t_new = datetime.strptime(record.timestamp, "%Y-%m-%d %H:%M:%S")
-                    if abs((t_new - t_latest).total_seconds()) < 3.0:
-                        return records
-                except Exception:
-                    if latest.timestamp == record.timestamp:
-                        return records
+            for existing in records:
+                if (
+                    existing.exercise.strip().lower() == record.exercise.strip().lower()
+                    and existing.reps == record.reps
+                    and abs(existing.weight_kg - record.weight_kg) < 0.01
+                ):
+                    try:
+                        t_existing = datetime.strptime(existing.timestamp, "%Y-%m-%d %H:%M:%S")
+                        t_new = datetime.strptime(record.timestamp, "%Y-%m-%d %H:%M:%S")
+                        if abs((t_new - t_existing).total_seconds()) < 3.0:
+                            return records
+                    except Exception:
+                        if existing.timestamp == record.timestamp:
+                            return records
         records.insert(0, record)
         self.save_history(records)
-        return records
+        return self.load_history()
 
     def delete_set(self, record_id: str) -> List[SetRecord]:
         records = self.load_history()

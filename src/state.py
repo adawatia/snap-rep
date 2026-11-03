@@ -154,27 +154,29 @@ class AppState:
                 f"Rest timer is running ({self.timer_seconds_remaining}s remaining). Wait or reset timer to log next set.",
             )
 
+        now = datetime.now()
+        cur_tuple = (
+            self.current_exercise.name.strip().lower(),
+            self.current_reps,
+            round(self.current_weight, 2),
+        )
+        # Immediate synchronous debounce rejection
+        if (
+            self._last_logged_time is not None
+            and (now - self._last_logged_time).total_seconds() < 3.0
+            and self._last_logged_tuple == cur_tuple
+        ):
+            return False, "Duplicate set ignored (just logged)."
+
+        # Validate minimum reps
+        if self.current_reps <= 0:
+            return False, "Reps must be at least 1 to log a set."
+
         self._logging_in_progress = True
+        self._last_logged_time = now
+        self._last_logged_tuple = cur_tuple
         try:
             async with self._log_lock:
-                now = datetime.now()
-                cur_tuple = (
-                    self.current_exercise.name.strip().lower(),
-                    self.current_reps,
-                    round(self.current_weight, 2),
-                )
-                # Rejection of rapid duplicate logs (e.g., accidental double-tap on touchscreens)
-                if (
-                    self._last_logged_time is not None
-                    and (now - self._last_logged_time).total_seconds() < 3.0
-                    and self._last_logged_tuple == cur_tuple
-                ):
-                    return False, "Duplicate set ignored (just logged)."
-
-                # Validate minimum reps
-                if self.current_reps <= 0:
-                    return False, "Reps must be at least 1 to log a set."
-
                 record = SetRecord(
                     exercise=self.current_exercise.name,
                     reps=self.current_reps,
@@ -183,8 +185,6 @@ class AppState:
                     set_number=self.current_set_number,
                 )
                 self.history = self.storage.add_record(record)
-                self._last_logged_time = now
-                self._last_logged_tuple = cur_tuple
                 logged_set_num = self.current_set_number
                 self._recalculate_current_set_number()
 
