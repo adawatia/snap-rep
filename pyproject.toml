@@ -35,8 +35,8 @@ copyright = "Copyright (C) 2026 Datlabs"
 path = "src"
 
 [tool.flet.android]
-split_per_abi = false
-adaptive_icon_background = "#0f172a"
+split_per_abi = true
+adaptive_icon_background = "#536dfe"
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true
