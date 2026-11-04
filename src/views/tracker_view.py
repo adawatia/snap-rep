@@ -97,11 +97,13 @@ class TrackerView:
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
-        self.exercise_badge_text = ft.Text("Built-in", size=9, weight=ft.FontWeight.BOLD)
+        self.exercise_badge_text = ft.Text("Custom", size=9, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY)
         self.exercise_badge = ft.Container(
             content=self.exercise_badge_text,
             padding=ft.Padding(5, 2, 5, 2),
             border_radius=6,
+            border=ft.Border.all(1, ft.Colors.PRIMARY),
+            visible=False,
         )
 
         self.exercise_selector_card = ft.Container(
@@ -110,6 +112,7 @@ class TrackerView:
             border_radius=12,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            ink=True,
             on_click=self._open_exercise_picker,
             content=ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -119,7 +122,14 @@ class TrackerView:
                         spacing=2,
                         expand=True,
                         controls=[
-                            self.exercise_name_label,
+                            ft.Row(
+                                spacing=6,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    self.exercise_name_label,
+                                    self.exercise_badge,
+                                ],
+                            ),
                             self.exercise_category_label,
                         ],
                     ),
@@ -312,9 +322,7 @@ class TrackerView:
         else:
             formatted_default_wt = self._format_weight(cur.default_weight)
             self.exercise_category_label.value = f"{cur.category} • {cur.default_reps} reps @ {formatted_default_wt}kg"
-        self.exercise_badge_text.value = "Custom" if cur.is_custom else "Built-in"
-        self.exercise_badge_text.color = ft.Colors.PRIMARY if cur.is_custom else ft.Colors.OUTLINE
-        self.exercise_badge.border = ft.Border.all(1, ft.Colors.PRIMARY if cur.is_custom else ft.Colors.OUTLINE)
+        self.exercise_badge.visible = cur.is_custom
 
         # Timer
         mins = self.state.timer_seconds_remaining // 60
@@ -345,16 +353,23 @@ class TrackerView:
                     ft.Container(
                         margin=ft.Margin(0, 2, 0, 2),
                         content=ft.Row(
-                            spacing=6,
+                            spacing=8,
                             alignment=ft.MainAxisAlignment.CENTER,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             controls=[
                                 self.exercise_selector_card,
-                                ft.IconButton(
-                                    icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-                                    icon_color=ft.Colors.PRIMARY,
-                                    icon_size=26,
-                                    tooltip="Add Custom Exercise",
-                                    on_click=self._open_add_dialog,
+                                ft.Container(
+                                    content=ft.IconButton(
+                                        icon=ft.Icons.ADD,
+                                        icon_color=ft.Colors.PRIMARY,
+                                        icon_size=22,
+                                        tooltip="Add Custom Exercise",
+                                        on_click=self._open_add_dialog,
+                                    ),
+                                    bgcolor=ft.Colors.SURFACE_CONTAINER,
+                                    border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                                    border_radius=12,
+                                    padding=ft.Padding(0, 2, 0, 2),
                                 ),
                             ],
                         ),
@@ -434,7 +449,7 @@ class TrackerView:
                                             ft.Row(
                                                 spacing=4,
                                                 controls=[
-                                                    ft.Icon(ft.Icons.FITNESS_CENTER, size=15, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                    ft.Icon(ft.Icons.SCALE, size=15, color=ft.Colors.ON_SURFACE_VARIANT),
                                                     ft.Text("WEIGHT LIFTED", size=11, weight=ft.FontWeight.BOLD),
                                                 ],
                                             ),

@@ -1288,12 +1288,15 @@ def test_minimal_search_field_and_bottom_sheet_styling():
         bs_content = page.dialog.content
         column_controls = bs_content.content.controls
 
-        # Search field is borderless, has no prefix icon, and is filled
+        # Search field is borderless, has no prefix icon, is filled, and does not expand vertically
         search_field = column_controls[1]
         assert isinstance(search_field.border, ft.NoInputBorder)
         assert search_field.prefix_icon is None
         assert search_field.filled is True
         assert search_field.fill_color == ft.Colors.SURFACE_CONTAINER_HIGHEST
+        assert search_field.expand is False
+        assert bs_content.content.spacing == 6
+        assert column_controls[4].expand is False
 
         # Count badge is hidden when not filtering
         count_badge = column_controls[3]
@@ -1305,3 +1308,87 @@ def test_minimal_search_field_and_bottom_sheet_styling():
         assert count_badge.visible is True
         assert "Showing 1 of" in count_badge.value
 
+
+
+@pytest.mark.asyncio
+async def test_appbar_no_dumbbell_icon():
+    from main import main
+
+    page = MockPage()
+    page.services = []
+    page.controls = []
+    page.add = lambda ctrl: page.controls.append(ctrl)
+    await main(page)
+
+    # Dumbbell icon removed from AppBar leading
+    assert page.appbar is not None
+    assert getattr(page.appbar, "leading", None) is None
+    assert page.appbar.automatically_imply_leading is False
+    assert page.appbar.center_title is True
+
+
+def test_tracker_no_dumbbell_no_search_badge_minimal_ui():
+    from views.tracker_view import TrackerView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        tracker = TrackerView(page, state)
+
+        # Tactical ink ripple effect enabled
+        assert tracker.exercise_selector_card.ink is True
+
+        # Built-in exercise: built-in badge is hidden
+        tracker.update_ui()
+        assert tracker.exercise_badge.visible is False
+
+        # Verify no dumbbell icon and no search badge inside the selector card
+        card_content = tracker.exercise_selector_card.content
+        assert isinstance(card_content, ft.Row)
+
+        def check_no_dumbbell_or_search(ctrl):
+            if isinstance(ctrl, ft.Icon):
+                assert ctrl.icon != ft.Icons.FITNESS_CENTER
+            if isinstance(ctrl, ft.Text):
+                assert ctrl.value != "Search"
+            if hasattr(ctrl, "controls") and ctrl.controls:
+                for child in ctrl.controls:
+                    check_no_dumbbell_or_search(child)
+            if hasattr(ctrl, "content") and ctrl.content:
+                check_no_dumbbell_or_search(ctrl.content)
+
+        check_no_dumbbell_or_search(tracker.exercise_selector_card)
+
+        # Custom exercise: custom badge becomes visible
+        asyncio.run(state.add_custom_exercise("Ring Dips", "Calisthenics", 12, 0))
+        asyncio.run(state.select_exercise("Ring Dips"))
+        tracker.update_ui()
+        assert tracker.exercise_badge.visible is True
+        assert tracker.exercise_badge_text.value == "Custom"
+
+
+def test_exercises_view_no_repetitive_dumbbell_icons():
+    from views.exercises_view import ExercisesView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        view = ExercisesView(page, state)
+
+        # Exercise cards must not have dumbbell icon clutter
+        for card in view.exercise_list_column.controls:
+            container = card.content
+            assert container.ink is True
+            # Traverse children and ensure no FITNESS_CENTER icon
+            def check_no_dumbbell(ctrl):
+                if isinstance(ctrl, ft.Icon):
+                    assert ctrl.icon != ft.Icons.FITNESS_CENTER
+                if hasattr(ctrl, "controls") and ctrl.controls:
+                    for child in ctrl.controls:
+                        check_no_dumbbell(child)
+                if hasattr(ctrl, "content") and ctrl.content:
+                    check_no_dumbbell(ctrl.content)
+
+            check_no_dumbbell(card)

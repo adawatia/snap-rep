@@ -80,8 +80,8 @@ async def main(page: ft.Page):
     )
 
     page.appbar = ft.AppBar(
-        leading=ft.Icon(ft.Icons.FITNESS_CENTER, color=ft.Colors.PRIMARY),
-        title=ft.Text(APP_TITLE, weight=ft.FontWeight.BOLD),
+        automatically_imply_leading=False,
+        title=ft.Text(APP_TITLE, weight=ft.FontWeight.BOLD, size=18),
         center_title=True,
         bgcolor=ft.Colors.SURFACE_CONTAINER,
     )

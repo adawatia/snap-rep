@@ -13,7 +13,6 @@ from config import EXERCISE_CATEGORIES
 from models import Exercise
 from state import AppState
 
-
 class ExercisesView:
     def __init__(self, page: ft.Page, state: AppState):
         self.page = page
@@ -184,8 +183,6 @@ class ExercisesView:
             else:
                 wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
                 target_str = f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}"
-            badge_color = ft.Colors.PRIMARY if ex.is_custom else ft.Colors.OUTLINE
-            badge_text = "Custom" if ex.is_custom else "Built-in"
 
             row_actions = [
                 ft.IconButton(
@@ -210,57 +207,53 @@ class ExercisesView:
 
             item_card = ft.Card(
                 content=ft.Container(
-                    padding=ft.Padding(12, 10, 12, 10),
+                    padding=ft.Padding(14, 10, 14, 10),
+                    ink=True,
                     content=ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            # Left: Icon & Info (expand=True so actions never overflow)
-                            ft.Row(
-                                spacing=10,
+                            # Left: Title & Subtitle (no redundant dumbbell icon, full width)
+                            ft.Column(
+                                spacing=2,
                                 expand=True,
                                 controls=[
-                                    ft.Icon(
-                                        ft.Icons.FITNESS_CENTER,
-                                        size=20,
-                                        color=ft.Colors.PRIMARY if ex.is_custom else ft.Colors.SECONDARY,
-                                    ),
-                                    ft.Column(
-                                        spacing=2,
-                                        expand=True,
+                                    ft.Row(
+                                        spacing=6,
                                         controls=[
-                                            ft.Row(
-                                                spacing=6,
-                                                controls=[
+                                            ft.Container(
+                                                content=ft.Text(
+                                                    ex.name,
+                                                    weight=ft.FontWeight.BOLD,
+                                                    size=14,
+                                                    max_lines=1,
+                                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                                ),
+                                                expand=True,
+                                            ),
+                                            *(
+                                                [
                                                     ft.Container(
                                                         content=ft.Text(
-                                                            ex.name,
+                                                            "Custom",
+                                                            size=9,
                                                             weight=ft.FontWeight.BOLD,
-                                                            size=14,
-                                                            max_lines=1,
-                                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                                        ),
-                                                        expand=True,
-                                                    ),
-                                                    ft.Container(
-                                                        content=ft.Text(
-                                                            badge_text,
-                                                            size=10,
-                                                            weight=ft.FontWeight.BOLD,
-                                                            color=badge_color,
+                                                            color=ft.Colors.PRIMARY,
                                                         ),
                                                         padding=ft.Padding(5, 2, 5, 2),
-                                                        border=ft.Border.all(1, badge_color),
+                                                        border=ft.Border.all(1, ft.Colors.PRIMARY),
                                                         border_radius=6,
-                                                    ),
-                                                ],
-                                            ),
-                                            ft.Text(
-                                                target_str,
-                                                size=12,
-                                                color=ft.Colors.ON_SURFACE_VARIANT,
+                                                    )
+                                                ]
+                                                if ex.is_custom
+                                                else []
                                             ),
                                         ],
+                                    ),
+                                    ft.Text(
+                                        target_str,
+                                        size=12,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                     ),
                                 ],
                             ),
@@ -271,7 +264,7 @@ class ExercisesView:
                             ),
                         ],
                     ),
-                )
+                ),
             )
             cards.append(item_card)
 
@@ -287,7 +280,7 @@ class ExercisesView:
             expand=True,
             content=ft.Column(
                 scroll=ft.ScrollMode.ADAPTIVE,
-                spacing=12,
+                spacing=8,
                 controls=[
                     # Header: Title + Add Button
                     ft.Row(

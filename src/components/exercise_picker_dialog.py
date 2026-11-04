@@ -40,7 +40,7 @@ def show_exercise_picker(
         filled=True,
         fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
         on_change=on_search_change,
-        expand=True,
+        expand=False,
         autofocus=False,
     )
 
@@ -64,6 +64,7 @@ def show_exercise_picker(
             is_active = (cat == selected_category)
             pills.append(
                 ft.Container(
+                    ink=True,
                     content=ft.Text(
                         cat,
                         size=11,
@@ -82,8 +83,8 @@ def show_exercise_picker(
     list_column = ft.Column(spacing=6, scroll=ft.ScrollMode.ADAPTIVE)
     list_container = ft.Container(
         content=list_column,
-        height=320,
-        expand=True,
+        height=350,
+        expand=False,
     )
 
     def open_add_custom(initial_name: str = ""):
@@ -263,6 +264,7 @@ def show_exercise_picker(
                 border=card_border,
                 border_radius=10,
                 bgcolor=card_bgcolor,
+                ink=True,
                 on_click=lambda _, target=ex: asyncio.create_task(choose_exercise(target)),
             )
             cards.append(item)
@@ -276,7 +278,7 @@ def show_exercise_picker(
     sheet_content = ft.Container(
         padding=ft.Padding(16, 8, 16, 16),
         content=ft.Column(
-            spacing=8,
+            spacing=6,
             tight=True,
             controls=[
                 # Top Header Row: Clean minimal title, + Custom button, Close button
