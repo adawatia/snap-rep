@@ -61,15 +61,21 @@ async def show_backup_dialog(page: ft.Page, state: AppState) -> None:
             page.update()
 
     async def on_copy_click(e):
-        if state.clipboard:
-            try:
-                await state.clipboard.set(json_str)
-                copy_status_text.value = "Copied to clipboard!"
-                copy_status_text.color = ft.Colors.GREEN
-                copy_status_text.update()
-                await state.trigger_haptic("click")
-            except Exception:
-                pass
+        if not state.clipboard:
+            copy_status_text.value = "Clipboard is unavailable on this device."
+            copy_status_text.color = ft.Colors.ERROR
+            page.update()
+            return
+        try:
+            await state.clipboard.set(json_str)
+            copy_status_text.value = "Copied to clipboard!"
+            copy_status_text.color = ft.Colors.PRIMARY
+            page.update()
+            await state.trigger_haptic("click")
+        except Exception:
+            copy_status_text.value = "Could not copy. Try saving the backup instead."
+            copy_status_text.color = ft.Colors.ERROR
+            page.update()
 
     dialog = ft.AlertDialog(
         title=ft.Row(

@@ -44,6 +44,7 @@ async def main(page: ft.Page):
 
     # Navigation & State Change Observer
     current_tab_index = 0
+    tab_titles = ["Tracker", "History", "Exercises", "Stats", "Settings"]
 
     def on_state_changed():
         active_view = view_instances[current_tab_index]
@@ -61,15 +62,26 @@ async def main(page: ft.Page):
     def on_nav_change(e):
         nonlocal current_tab_index
         current_tab_index = e.control.selected_index
+        page.appbar.title = ft.Text(tab_titles[current_tab_index], weight=ft.FontWeight.BOLD, size=20)
         # Sync active tab to optimize background rendering
         tracker_view.is_active = (current_tab_index == 0)
         content_area.content = view_instances[current_tab_index].root
         view_instances[current_tab_index].update_ui()
         page.update()
 
+    def on_page_resize(e):
+        tracker_view.update_viewport_layout(e.height)
+        if current_tab_index == 0:
+            page.update()
+
+    page.on_resize = on_page_resize
+
     page.navigation_bar = ft.NavigationBar(
         selected_index=0,
         on_change=on_nav_change,
+        bgcolor=ft.Colors.SURFACE_CONTAINER,
+        indicator_color=ft.Colors.SECONDARY_CONTAINER,
+        elevation=0,
         destinations=[
             ft.NavigationBarDestination(icon=ft.Icons.FITNESS_CENTER, label="Tracker"),
             ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH, label="History"),
@@ -81,8 +93,8 @@ async def main(page: ft.Page):
 
     page.appbar = ft.AppBar(
         automatically_imply_leading=False,
-        title=ft.Text(APP_TITLE, weight=ft.FontWeight.BOLD, size=18),
-        center_title=True,
+        title=ft.Text("Tracker", weight=ft.FontWeight.BOLD, size=20),
+        center_title=False,
         bgcolor=ft.Colors.SURFACE_CONTAINER,
     )
 

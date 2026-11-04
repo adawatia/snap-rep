@@ -266,6 +266,9 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
     if local_backups:
         local_options.append(ft.Text("Recent In-App Backups:", size=12, weight=ft.FontWeight.BOLD))
         for p in local_backups[:3]:
+            async def handle_local_backup_click(e, backup_path=p):
+                await on_local_backup_click(backup_path)
+
             btn = ft.OutlinedButton(
                 content=ft.Row(
                     spacing=6,
@@ -274,7 +277,7 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
                         ft.Text(p.name, size=11),
                     ],
                 ),
-                on_click=lambda _, bp=p: on_local_backup_click(bp),
+                on_click=handle_local_backup_click,
             )
             local_options.append(btn)
 

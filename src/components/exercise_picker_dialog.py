@@ -33,14 +33,16 @@ def show_exercise_picker(
 
     search_field = ft.TextField(
         hint_text="Search exercise or category...",
-        border=ft.NoInputBorder(),
+        border=ft.OutlineInputBorder(
+            border_radius=12,
+            side=ft.BorderSide(color=ft.Colors.TRANSPARENT),
+        ),
         dense=True,
         content_padding=ft.Padding(14, 10, 14, 10),
-        border_radius=12,
         filled=True,
         fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
         on_change=on_search_change,
-        expand=False,
+        expand=True,
         autofocus=False,
     )
 
@@ -63,17 +65,19 @@ def show_exercise_picker(
         for cat in categories:
             is_active = (cat == selected_category)
             pills.append(
-                ft.Container(
-                    ink=True,
+                ft.OutlinedButton(
                     content=ft.Text(
                         cat,
                         size=11,
                         weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.W_500,
-                        color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                    bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                    padding=ft.Padding(10, 5, 10, 5),
-                    border_radius=14,
+                    height=44,
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                        color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
+                        shape=ft.RoundedRectangleBorder(radius=14),
+                        padding=ft.Padding(12, 8, 12, 8),
+                    ),
                     on_click=lambda _, c=cat: select_category(c),
                 )
             )
@@ -280,6 +284,7 @@ def show_exercise_picker(
         content=ft.Column(
             spacing=6,
             tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
                 # Top Header Row: Clean minimal title, + Custom button, Close button
                 ft.Row(
@@ -308,7 +313,7 @@ def show_exercise_picker(
                     ],
                 ),
                 # Minimal Borderless Search Bar
-                search_field,
+                ft.Row(controls=[search_field]),
                 # Category Filter Pills
                 category_row,
                 # Info badge (visible only when actively filtering)

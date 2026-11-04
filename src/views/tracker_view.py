@@ -1,6 +1,4 @@
-"""Tracker view: Exercise selector, rep counter, weight input with adjustment pills, rest timer, and log button.
-Arranged compactly to fit on mobile screens without vertical scroll.
-"""
+"""Tracker view: exercise selection, rep and weight controls, rest timer, and set logging."""
 
 import asyncio
 import flet as ft
@@ -14,11 +12,13 @@ class TrackerView:
     def __init__(self, page: ft.Page, state: AppState):
         self.page = page
         self.state = state
+        self._has_selected_exercise = False
+        self._initial_exercise_name = state.current_exercise.name
 
         # Reps display
         self.reps_display = ft.Text(
             str(self.state.current_reps),
-            size=50,
+            size=52,
             weight=ft.FontWeight.BOLD,
             color=ft.Colors.PRIMARY,
         )
@@ -74,24 +74,35 @@ class TrackerView:
         self.timer_toggle_btn = ft.IconButton(
             icon=ft.Icons.PLAY_ARROW,
             icon_size=18,
+            size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
             tooltip="Pause / Resume",
             on_click=lambda _: asyncio.create_task(self.state.toggle_timer()),
+        )
+        self.timer_reset_btn = ft.IconButton(
+            icon=ft.Icons.STOP,
+            icon_size=18,
+            icon_color=ft.Colors.ERROR,
+            size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
+            tooltip="Reset timer",
+            on_click=lambda _: asyncio.create_task(self.state.reset_timer()),
         )
         self.timer_pills_container = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             controls=[],
         )
+        self.weight_shortcuts = self._build_weight_pills()
 
         # Exercise Selector Card (Minimal, simple, zero truncation)
         self.exercise_name_label = ft.Text(
-            self.state.current_exercise.name,
+            "Select Exercise",
             size=15,
             weight=ft.FontWeight.BOLD,
+            color=ft.Colors.ON_SURFACE_VARIANT,
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
         self.exercise_category_label = ft.Text(
-            "",
+            "Tap to choose a movement",
             size=12,
             color=ft.Colors.ON_SURFACE_VARIANT,
             max_lines=1,
@@ -108,7 +119,7 @@ class TrackerView:
 
         self.exercise_selector_card = ft.Container(
             expand=True,
-            padding=ft.Padding(14, 10, 14, 10),
+            padding=ft.Padding(14, 8, 14, 8),
             border_radius=12,
             bgcolor=ft.Colors.SURFACE_CONTAINER,
             border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
@@ -147,7 +158,16 @@ class TrackerView:
         self.is_active: bool = True  # whether Tracker tab is currently visible
         self.log_btn = self._build_log_btn()
         self.root = self._build_layout()
+        self.update_viewport_layout()
         self.state.subscribe_timer(self._on_timer_tick)
+        self.update_ui()
+
+    def update_viewport_layout(self, height: float | None = None) -> None:
+        """Keep the primary tracker controls visible on short phone screens."""
+        compact = (height or getattr(self.page, "height", None) or 800) < 700
+        self.weight_shortcuts.visible = not compact
+        self.reps_display.size = 44 if compact else 52
+        self.root.content.spacing = 6 if compact else 8
 
     def _on_timer_tick(self) -> None:
         mins = self.state.timer_seconds_remaining // 60
@@ -164,30 +184,42 @@ class TrackerView:
         return str(int(wt) if wt.is_integer() else round(wt, 1))
 
     def _open_exercise_picker(self, e) -> None:
+        def on_select(_):
+            self._has_selected_exercise = True
+            self.update_ui()
+
         show_exercise_picker(
             self.page,
             self.state,
-            on_select=lambda _: self.update_ui(),
+            on_select=on_select,
         )
 
     def _open_add_dialog(self, e) -> None:
+        def on_success(_):
+            self._has_selected_exercise = True
+            self.update_ui()
+
         show_add_exercise_dialog(
             self.page,
             self.state,
-            on_success=lambda _: self.update_ui(),
+            on_success=on_success,
         )
 
     def _on_weight_input_change(self, e) -> None:
         self.state.set_weight_from_text(e.control.value)
 
     def _is_log_blocked(self) -> bool:
-        """Returns True when logging should be blocked (timer running OR already logging)."""
-        return self._is_logging or (self.state.timer_running and self.state.timer_seconds_remaining > 0)
+        """Require an explicit exercise choice before recording a set."""
+        return (not self._has_selected_exercise or self._is_logging or
+                (self.state.timer_running and self.state.timer_seconds_remaining > 0))
 
     def _sync_log_btn_state(self) -> None:
         """Sync the log button appearance to match current blocked/allowed state."""
         blocked = self._is_log_blocked()
-        if blocked and self.state.timer_running:
+        if not self._has_selected_exercise:
+            label = "SELECT AN EXERCISE"
+            icon = ft.Icons.FITNESS_CENTER
+        elif blocked and self.state.timer_running:
             label = "REST IN PROGRESS"
             icon = ft.Icons.TIMER
         elif blocked:
@@ -210,7 +242,7 @@ class TrackerView:
             content="LOG THIS SET",
             icon=ft.Icons.CHECK_CIRCLE,
             expand=True,
-            height=48,
+            height=52,
             style=ft.ButtonStyle(
                 bgcolor=ft.Colors.PRIMARY,
                 color=ft.Colors.ON_PRIMARY,
@@ -249,28 +281,28 @@ class TrackerView:
 
     def _build_weight_pills(self) -> ft.Row:
         steps = [
-            ("-5kg", -5.0),
-            ("-2.5kg", -2.5),
-            ("+2.5kg", +2.5),
-            ("+5kg", +5.0),
+            ("-5", -5.0),
+            ("-2.5", -2.5),
+            ("+2.5", +2.5),
+            ("+5", +5.0),
         ]
         pills = []
         for label, delta in steps:
             pills.append(
-                ft.Container(
-                    content=ft.Text(
-                        label,
-                        size=12,
-                        weight=ft.FontWeight.BOLD,
+                ft.OutlinedButton(
+                    content=ft.Text(label, size=12, weight=ft.FontWeight.BOLD, no_wrap=True),
+                    expand=True,
+                    height=44,
+                    tooltip=f"Adjust weight by {label} kg",
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                        padding=ft.Padding(4, 4, 4, 4),
                     ),
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                    padding=ft.Padding(16, 6, 16, 6),
-                    border_radius=8,
                     on_click=lambda _, d=delta: asyncio.create_task(self.state.update_weight(delta=d)),
                 )
             )
         return ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=8,
             controls=pills,
         )
 
@@ -280,22 +312,26 @@ class TrackerView:
         for sec in presets:
             is_active = (self.state.timer_running and self.state.timer_seconds_remaining == sec)
             pills.append(
-                ft.Container(
-                    content=ft.Text(
-                        f"{sec}s",
-                        size=12,
-                        weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.ON_PRIMARY_CONTAINER if is_active else None,
+                ft.OutlinedButton(
+                    content=ft.Text(f"{sec}s", size=12, weight=ft.FontWeight.BOLD, no_wrap=True),
+                    expand=True,
+                    height=44,
+                    tooltip=f"Start a {sec} second rest timer",
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.PRIMARY_CONTAINER if is_active else None,
+                        color=ft.Colors.ON_PRIMARY_CONTAINER if is_active else ft.Colors.ON_SURFACE,
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                        padding=ft.Padding(4, 4, 4, 4),
                     ),
-                    bgcolor=ft.Colors.PRIMARY_CONTAINER if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                    padding=ft.Padding(16, 6, 16, 6),
-                    border_radius=8,
                     on_click=lambda _, s=sec: asyncio.create_task(self.state.set_timer_preset(s)),
                 )
             )
         self.timer_pills_container.controls = pills
+        self.timer_pills_container.spacing = 8
 
     def update_ui(self) -> None:
+        if self.state.current_exercise.name != self._initial_exercise_name:
+            self._has_selected_exercise = True
         # Reps & Badge
         self.reps_display.value = str(self.state.current_reps)
         self.set_badge.value = f"SET {self.state.current_set_number}"
@@ -316,13 +352,25 @@ class TrackerView:
 
         # Exercise Selector Card sync
         cur = self.state.current_exercise
-        self.exercise_name_label.value = cur.name
-        if cur.default_weight == 0 or cur.category.lower() == "calisthenics":
+        self.exercise_name_label.value = cur.name if self._has_selected_exercise else "Select Exercise"
+        self.exercise_name_label.color = (
+            ft.Colors.ON_SURFACE if self._has_selected_exercise else ft.Colors.ON_SURFACE_VARIANT
+        )
+        if not self._has_selected_exercise:
+            self.exercise_category_label.value = "Tap to choose a movement"
+        elif cur.default_weight == 0 or cur.category.lower() == "calisthenics":
             self.exercise_category_label.value = f"{cur.category} • {cur.default_reps} reps"
         else:
             formatted_default_wt = self._format_weight(cur.default_weight)
             self.exercise_category_label.value = f"{cur.category} • {cur.default_reps} reps @ {formatted_default_wt}kg"
-        self.exercise_badge.visible = cur.is_custom
+        self.exercise_badge.visible = cur.is_custom and self._has_selected_exercise
+        self.default_reps_btn.disabled = not self._has_selected_exercise
+        self.default_weight_btn.disabled = not self._has_selected_exercise
+        self.weight_input.disabled = not self._has_selected_exercise
+        self.rep_card.disabled = not self._has_selected_exercise
+        self.weight_card.disabled = not self._has_selected_exercise
+        self.rep_card.opacity = 1 if self._has_selected_exercise else 0.55
+        self.weight_card.opacity = 1 if self._has_selected_exercise else 0.55
 
         # Timer
         mins = self.state.timer_seconds_remaining // 60
@@ -332,26 +380,30 @@ class TrackerView:
         if self.state.timer_running:
             self.timer_status_label.value = "Resting..."
             self.timer_toggle_btn.icon = ft.Icons.PAUSE
+            self.timer_toggle_btn.tooltip = "Pause timer"
         elif self.state.timer_seconds_remaining > 0:
             self.timer_status_label.value = "Timer paused"
             self.timer_toggle_btn.icon = ft.Icons.PLAY_ARROW
+            self.timer_toggle_btn.tooltip = "Resume timer"
         else:
             self.timer_status_label.value = "Rest Timer"
             self.timer_toggle_btn.icon = ft.Icons.PLAY_ARROW
+        self.timer_toggle_btn.disabled = self.state.timer_seconds_remaining == 0
+        self.timer_reset_btn.disabled = self.state.timer_seconds_remaining == 0
 
         self._refresh_timer_pills()
         self._sync_log_btn_state()
 
     def _build_layout(self) -> ft.Container:
-        return ft.Container(
-            padding=ft.Padding(14, 8, 14, 8),
+        root = ft.Container(
+            padding=ft.Padding(16, 8, 16, 8),
+            expand=True,
             content=ft.Column(
                 spacing=8,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 controls=[
                     # 1. Exercise Selection Row (compact margin to eliminate top gap)
                     ft.Container(
-                        margin=ft.Margin(0, 2, 0, 2),
                         content=ft.Row(
                             spacing=8,
                             alignment=ft.MainAxisAlignment.CENTER,
@@ -363,6 +415,7 @@ class TrackerView:
                                         icon=ft.Icons.ADD,
                                         icon_color=ft.Colors.PRIMARY,
                                         icon_size=22,
+                                        size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
                                         tooltip="Add Custom Exercise",
                                         on_click=self._open_add_dialog,
                                     ),
@@ -377,8 +430,9 @@ class TrackerView:
 
                     # 2. Compact Rep Counter Card
                     ft.Card(
+                        margin=0,
                         content=ft.Container(
-                            padding=ft.Padding(12, 8, 12, 8),
+                            padding=ft.Padding(16, 10, 16, 10),
                             content=ft.Column(
                                 spacing=4,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -403,7 +457,8 @@ class TrackerView:
                                         controls=[
                                             ft.IconButton(
                                                 icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
-                                                icon_size=40,
+                                                icon_size=32,
+                                                size_constraints=ft.BoxConstraints(min_width=56, min_height=56),
                                                 tooltip="Decrease 1 rep",
                                                 on_click=lambda _: asyncio.create_task(self.state.update_reps(-1)),
                                             ),
@@ -422,8 +477,9 @@ class TrackerView:
                                             ),
                                             ft.IconButton(
                                                 icon=ft.Icons.ADD_CIRCLE,
-                                                icon_size=40,
+                                                icon_size=32,
                                                 icon_color=ft.Colors.PRIMARY,
+                                                size_constraints=ft.BoxConstraints(min_width=56, min_height=56),
                                                 tooltip="Increase 1 rep",
                                                 on_click=lambda _: asyncio.create_task(self.state.update_reps(+1)),
                                             ),
@@ -436,8 +492,9 @@ class TrackerView:
 
                     # 3. Spacious Weight Stepper Card with Input Field & Pills
                     ft.Card(
+                        margin=0,
                         content=ft.Container(
-                            padding=ft.Padding(12, 8, 12, 8),
+                            padding=ft.Padding(16, 8, 16, 8),
                             content=ft.Column(
                                 spacing=4,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -463,22 +520,24 @@ class TrackerView:
                                         controls=[
                                             ft.IconButton(
                                                 icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
-                                                icon_size=32,
+                                                icon_size=26,
+                                                size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
                                                 tooltip="Decrease 2.5 kg",
                                                 on_click=lambda _: asyncio.create_task(self.state.update_weight(-2.5)),
                                             ),
                                             self.weight_input,
                                             ft.IconButton(
                                                 icon=ft.Icons.ADD_CIRCLE,
-                                                icon_size=32,
+                                                icon_size=26,
                                                 icon_color=ft.Colors.PRIMARY,
+                                                size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
                                                 tooltip="Increase 2.5 kg",
                                                 on_click=lambda _: asyncio.create_task(self.state.update_weight(+2.5)),
                                             ),
                                         ],
                                     ),
                                     # + and - Adjustment Pills (matches Rest Timer styling)
-                                    self._build_weight_pills(),
+                                    self.weight_shortcuts,
                                 ],
                             ),
                         ),
@@ -486,10 +545,11 @@ class TrackerView:
 
                     # 4. Compact Rest Timer Card
                     ft.Card(
+                        margin=0,
                         content=ft.Container(
-                            padding=ft.Padding(12, 8, 12, 8),
+                            padding=ft.Padding(16, 8, 16, 8),
                             content=ft.Column(
-                                spacing=6,
+                                spacing=4,
                                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                                 controls=[
                                     # Header: Timer icon/status on left, Clock + Controls on right
@@ -508,13 +568,7 @@ class TrackerView:
                                                 controls=[
                                                     self.timer_display,
                                                     self.timer_toggle_btn,
-                                                    ft.IconButton(
-                                                        icon=ft.Icons.STOP,
-                                                        icon_size=18,
-                                                        icon_color=ft.Colors.ERROR,
-                                                        tooltip="Reset Timer",
-                                                        on_click=lambda _: asyncio.create_task(self.state.reset_timer()),
-                                                    ),
+                                                    self.timer_reset_btn,
                                                 ],
                                             ),
                                         ],
@@ -528,7 +582,6 @@ class TrackerView:
 
                     # 5. Primary Action Button (Full Width)
                     ft.Container(
-                        padding=ft.Padding(0, 2, 0, 0),
                         content=ft.Row(
                             controls=[self.log_btn],
                         ),
@@ -536,3 +589,6 @@ class TrackerView:
                 ],
             ),
         )
+        self.rep_card = root.content.controls[1]
+        self.weight_card = root.content.controls[2]
+        return root

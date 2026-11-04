@@ -27,12 +27,12 @@ class HistoryView:
         self._all_history_limit = 50
 
         # Metric labels
-        self.today_reps_text = ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY)
-        self.total_sets_text = ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.SECONDARY)
-        self.total_volume_text = ft.Text("0 kg", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.TERTIARY)
+        self.today_reps_text = ft.Text("0", size=34, weight=ft.FontWeight.BOLD, color=ft.Colors.PRIMARY)
+        self.total_sets_text = ft.Text("0", size=18, weight=ft.FontWeight.BOLD)
+        self.total_volume_text = ft.Text("0 kg", size=18, weight=ft.FontWeight.BOLD)
 
         # Calendar controls
-        self.month_year_text = ft.Text("", size=15, weight=ft.FontWeight.BOLD)
+        self.month_year_text = ft.Text("", size=17, weight=ft.FontWeight.BOLD)
         self.prev_month_btn = ft.IconButton(
             icon=ft.Icons.CHEVRON_LEFT,
             icon_size=20,
@@ -48,7 +48,7 @@ class HistoryView:
         self.calendar_grid = ft.Column(spacing=4)
 
         # Dynamic workout content container
-        self.selected_date_label = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
+        self.selected_date_label = ft.Text("", size=18, weight=ft.FontWeight.BOLD)
         self.selected_date_stats = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
         self.day_exercise_list = ft.Column(spacing=8)
         self.day_exercise_container = ft.Container(content=self.day_exercise_list)
@@ -105,8 +105,7 @@ class HistoryView:
 
         self.selected_date_str = date_str
         self.view_mode = "day"
-        self._render_calendar()
-        self._render_history_data()
+        self.update_ui()
         self.page.update()
 
     def _set_view_mode(self, mode: str) -> None:
@@ -160,7 +159,7 @@ class HistoryView:
         self.next_month_btn.icon_color = ft.Colors.OUTLINE_VARIANT if is_next_disabled else None
 
         # Check memoization key to avoid rebuilding 40+ child controls when month, history length, and selection are identical
-        cal_key = (self.cal_year, self.cal_month, len(self.state.history), self.selected_date_str)
+        cal_key = (self.cal_year, self.cal_month, len(self.state.history), self.selected_date_str, self.view_mode)
         if getattr(self, "_last_cal_key", None) == cal_key and len(self.calendar_grid.controls) > 0:
             return
         self._last_cal_key = cal_key
@@ -175,7 +174,7 @@ class HistoryView:
             alignment=ft.MainAxisAlignment.SPACE_AROUND,
             controls=[
                 ft.Container(
-                    width=40,
+                    expand=1,
                     alignment=ft.Alignment.CENTER,
                     content=ft.Text(day_name, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
                 )
@@ -190,7 +189,7 @@ class HistoryView:
             cell_controls = []
             for day in week:
                 if day == 0:
-                    cell_controls.append(ft.Container(width=40, height=38))
+                    cell_controls.append(ft.Container(expand=1, height=44))
                     continue
 
                 cell_date = date(self.cal_year, self.cal_month, day)
@@ -201,8 +200,8 @@ class HistoryView:
                     # Future dates are completely disabled and unclickable
                     cell_controls.append(
                         ft.Container(
-                            width=40,
-                            height=38,
+                            expand=1,
+                            height=44,
                             alignment=ft.Alignment.CENTER,
                             content=ft.Text(
                                 str(day),
@@ -254,8 +253,8 @@ class HistoryView:
 
                 cell_controls.append(
                     ft.Container(
-                        width=40,
-                        height=38,
+                        expand=1,
+                        height=44,
                         alignment=ft.Alignment.CENTER,
                         border_radius=8,
                         bgcolor=cell_bg,
@@ -281,6 +280,15 @@ class HistoryView:
             self._render_day_view()
         else:
             self._render_all_view()
+
+    @staticmethod
+    def _format_timestamp(value: str, include_date: bool = False) -> str:
+        try:
+            stamp = datetime.fromisoformat(value)
+            time_label = stamp.strftime("%I:%M %p").lstrip("0")
+            return f"{stamp.strftime('%b %d')} · {time_label}" if include_date else time_label
+        except ValueError:
+            return value
 
     def _render_day_view(self) -> None:
         # Fast linear filter (deduplication is guaranteed by AppStorage)
@@ -367,7 +375,7 @@ class HistoryView:
                                         max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
-                                    ft.Text(item.timestamp, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ft.Text(self._format_timestamp(item.timestamp), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                     *(
                                         [
                                             ft.Text(
@@ -408,9 +416,14 @@ class HistoryView:
                 ],
             )
             cards.append(
-                ft.Card(
+                ft.Container(
                     key=f"set_card_{item.id}",
-                    content=ft.Container(padding=ft.Padding(10, 8, 10, 8), content=card_content),
+                    bgcolor=ft.Colors.SURFACE_CONTAINER,
+                    border_radius=12,
+                    content=ft.Container(
+                        padding=ft.Padding(12, 10, 12, 10),
+                        content=card_content,
+                    ),
                 )
             )
 
@@ -480,7 +493,7 @@ class HistoryView:
                                         max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS,
                                     ),
-                                    ft.Text(item.timestamp, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                    ft.Text(self._format_timestamp(item.timestamp, include_date=True), size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                                     *(
                                         [
                                             ft.Text(
@@ -521,9 +534,14 @@ class HistoryView:
                 ],
             )
             cards.append(
-                ft.Card(
+                ft.Container(
                     key=f"all_set_card_{item.id}",
-                    content=ft.Container(padding=ft.Padding(10, 8, 10, 8), content=card_content),
+                    bgcolor=ft.Colors.SURFACE_CONTAINER,
+                    border_radius=12,
+                    content=ft.Container(
+                        padding=ft.Padding(12, 10, 12, 10),
+                        content=card_content,
+                    ),
                 )
             )
 
@@ -560,149 +578,89 @@ class HistoryView:
 
         # Update view toggle buttons
         is_day = (self.view_mode == "day")
-        self.day_view_btn.bgcolor = ft.Colors.PRIMARY if is_day else ft.Colors.SURFACE_CONTAINER_HIGHEST
+        self.day_view_btn.bgcolor = ft.Colors.PRIMARY if is_day else ft.Colors.SURFACE_CONTAINER_HIGH
         self.day_view_btn.content = ft.Text(
-            "Selected Day",
+            "By day",
             size=12,
             weight=ft.FontWeight.BOLD,
             color=ft.Colors.ON_PRIMARY if is_day else None,
         )
-        self.all_view_btn.bgcolor = ft.Colors.PRIMARY if not is_day else ft.Colors.SURFACE_CONTAINER_HIGHEST
+        self.all_view_btn.bgcolor = ft.Colors.PRIMARY if not is_day else ft.Colors.SURFACE_CONTAINER_HIGH
         self.all_view_btn.content = ft.Text(
-            "All History",
+            "All sets",
             size=12,
             weight=ft.FontWeight.BOLD,
             color=ft.Colors.ON_PRIMARY if not is_day else None,
         )
 
         self._render_calendar()
+        self.calendar_card.visible = is_day
         self._render_history_data()
 
     def _build_layout(self) -> ft.Container:
         # View toggle buttons
         self.day_view_btn = ft.Container(
-            padding=ft.Padding(12, 6, 12, 6),
-            border_radius=8,
+            padding=ft.Padding(20, 12, 20, 12),
+            border_radius=12,
+            ink=True,
             on_click=lambda _: self._set_view_mode("day"),
         )
         self.all_view_btn = ft.Container(
-            padding=ft.Padding(12, 6, 12, 6),
-            border_radius=8,
+            padding=ft.Padding(20, 12, 20, 12),
+            border_radius=12,
+            ink=True,
             on_click=lambda _: self._set_view_mode("all"),
         )
         self.toggle_container.controls = [self.day_view_btn, self.all_view_btn]
 
-        return ft.Container(
-            padding=14,
-            expand=True,
+        self.calendar_card = ft.Container(
+            padding=ft.Padding(14, 12, 14, 16),
+            bgcolor=ft.Colors.SURFACE_CONTAINER,
+            border_radius=16,
             content=ft.Column(
-                scroll=ft.ScrollMode.ADAPTIVE,
-                spacing=14,
+                spacing=12,
                 controls=[
-                    # 1. Summary Cards Row
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         controls=[
-                            ft.Card(
-                                expand=1,
-                                content=ft.Container(
-                                    padding=10,
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Column(
-                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        spacing=2,
-                                        controls=[
-                                            ft.Text("TODAY REPS", size=10, weight=ft.FontWeight.BOLD),
-                                            self.today_reps_text,
-                                        ],
-                                    ),
-                                ),
-                            ),
-                            ft.Card(
-                                expand=1,
-                                content=ft.Container(
-                                    padding=10,
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Column(
-                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        spacing=2,
-                                        controls=[
-                                            ft.Text("TOTAL SETS", size=10, weight=ft.FontWeight.BOLD),
-                                            self.total_sets_text,
-                                        ],
-                                    ),
-                                ),
-                            ),
-                            ft.Card(
-                                expand=1,
-                                content=ft.Container(
-                                    padding=10,
-                                    alignment=ft.Alignment.CENTER,
-                                    content=ft.Column(
-                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                        spacing=2,
-                                        controls=[
-                                            ft.Text("VOLUME", size=10, weight=ft.FontWeight.BOLD),
-                                            self.total_volume_text,
-                                        ],
-                                    ),
-                                ),
-                            ),
+                            ft.Row(spacing=2, controls=[self.prev_month_btn, self.month_year_text, self.next_month_btn]),
+                            ft.TextButton("Today", on_click=self._go_to_today),
                         ],
                     ),
+                    self.calendar_grid,
+                    ft.Text("A dot marks a day with recorded sets.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                ],
+            ),
+        )
 
-                    # 2. Interactive Calendar Card
-                    ft.Card(
-                        content=ft.Container(
-                            padding=12,
-                            content=ft.Column(
-                                spacing=10,
-                                controls=[
-                                    # Month Navigation Header
-                                    ft.Row(
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                        controls=[
-                                            ft.Row(
-                                                spacing=4,
-                                                controls=[
-                                                    self.prev_month_btn,
-                                                    self.month_year_text,
-                                                    self.next_month_btn,
-                                                ],
-                                            ),
-                                            ft.TextButton(
-                                                "Today",
-                                                icon=ft.Icons.TODAY,
-                                                on_click=self._go_to_today,
-                                            ),
-                                        ],
-                                    ),
-                                    # Month Grid
-                                    self.calendar_grid,
-                                ],
-                            ),
-                        )
+        return ft.Container(
+            padding=ft.Padding(16, 14, 16, 24),
+            expand=True,
+            content=ft.Column(
+                scroll=ft.ScrollMode.ADAPTIVE,
+                spacing=18,
+                controls=[
+                    ft.Container(
+                        padding=ft.Padding(18, 14, 18, 14),
+                        bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                        border_radius=16,
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Column(spacing=0, controls=[
+                                    ft.Text("Reps today", size=12, color=ft.Colors.ON_PRIMARY_CONTAINER),
+                                    self.today_reps_text,
+                                ]),
+                                ft.Column(spacing=8, horizontal_alignment=ft.CrossAxisAlignment.END, controls=[
+                                    ft.Row(spacing=8, controls=[ft.Text("Total sets", size=11, color=ft.Colors.ON_PRIMARY_CONTAINER), self.total_sets_text]),
+                                    ft.Row(spacing=8, controls=[ft.Text("Volume", size=11, color=ft.Colors.ON_PRIMARY_CONTAINER), self.total_volume_text]),
+                                ]),
+                            ],
+                        ),
                     ),
-
-                    # 3. View Mode Toggle (Centered, giving full room)
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        controls=[self.toggle_container],
-                    ),
-
-                    # 4. Section Title
-                    ft.Text("Workout Sets", size=16, weight=ft.FontWeight.BOLD),
-
-                    # 4. Selected Date Header & Stats
-                    ft.Column(
-                        spacing=2,
-                        controls=[
-                            self.selected_date_label,
-                            self.selected_date_stats,
-                        ],
-                    ),
-
-                    # 5. Scalable Exercise / Sets List
+                    self.toggle_container,
+                    self.calendar_card,
+                    ft.Column(spacing=4, controls=[self.selected_date_label, self.selected_date_stats]),
                     self.day_exercise_container,
                 ],
             ),

@@ -402,6 +402,15 @@ async def test_settings_view_preferences():
         page = MockPage()
         settings_view = SettingsView(page, state)
 
+        appearance = settings_view.root.content.controls[0]
+        theme_row = appearance.controls[1].content.controls[1]
+        workout = settings_view.root.content.controls[1]
+        rest_row = workout.controls[1].content.controls[0]
+        assert theme_row.controls == [settings_view.theme_dropdown]
+        assert rest_row.controls == [settings_view.rest_timer_dropdown]
+        assert settings_view.theme_dropdown.expand is True
+        assert settings_view.rest_timer_dropdown.expand is True
+
         # Default is light theme
         assert settings_view.theme_dropdown.value == "light"
 
@@ -464,6 +473,21 @@ def test_tracker_view_weight_and_input():
         assert tracker.weight_input.value == "72.5"
 
 
+def test_tracker_uses_compact_layout_on_short_screens(tmp_path):
+    from views.tracker_view import TrackerView
+
+    page = MockPage()
+    page.height = 640
+    tracker = TrackerView(page, AppState(storage=AppStorage(storage_dir=tmp_path)))
+    assert tracker.root.content.scroll is None
+    assert tracker.weight_shortcuts.visible is False
+    assert tracker.reps_display.size == 44
+
+    tracker.update_viewport_layout(800)
+    assert tracker.weight_shortcuts.visible is True
+    assert tracker.reps_display.size == 52
+
+
 def test_history_view_long_exercise_name_no_overflow():
     from views.history_view import HistoryView
 
@@ -509,6 +533,105 @@ def test_edit_exercise_dialog_creation_no_type_error():
     show_edit_exercise_dialog(page, state, custom_ex)
     assert page.dialog is not None
     assert "Custom Chin-up" in page.dialog.title.value
+
+
+@pytest.mark.asyncio
+async def test_edit_exercise_save_shows_validation_and_updates_defaults(tmp_path):
+    from components.edit_exercise_dialog import show_edit_exercise_dialog
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    exercise = next(ex for ex in state.exercises if ex.name == "Push-ups")
+    page = MockPage()
+    show_edit_exercise_dialog(page, state, exercise)
+    dialog = page.dialog
+    name_field, _, defaults_row, status = dialog.content.content.controls
+    save_button = dialog.actions[1]
+
+    name_field.value = ""
+    await save_button.on_click(None)
+    assert status.visible is True
+    assert "name" in status.value
+
+    name_field.value = "Push-ups"
+    defaults_row.controls[0].content.value = "20"
+    await save_button.on_click(None)
+    assert next(ex for ex in state.exercises if ex.name == "Push-ups").default_reps == 20
+    assert save_button.disabled is False
+
+
+@pytest.mark.asyncio
+async def test_add_exercise_save_feedback_and_validation(tmp_path):
+    from components.add_exercise_dialog import show_add_exercise_dialog
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    page = MockPage()
+    saved = []
+    show_add_exercise_dialog(page, state, on_success=saved.append)
+
+    dialog = page.dialog
+    name_field, category_row, defaults_row, status = dialog.content.content.controls
+    reps_field = defaults_row.controls[0].content
+    weight_field = defaults_row.controls[1].content
+    save_button = dialog.actions[1]
+
+    await save_button.on_click(None)
+    assert status.visible is True
+    assert "name" in status.value
+    assert name_field.error_text == status.value
+
+    name_field.value = "Cable Fly"
+    reps_field.value = "abc"
+    await save_button.on_click(None)
+    assert "1 to 999" in status.value
+    assert not saved
+
+    reps_field.value = "12"
+    weight_field.value = "-1"
+    await save_button.on_click(None)
+    assert "0 to 1000" in status.value
+    assert not saved
+
+    weight_field.value = "5"
+    await save_button.on_click(None)
+    assert len(saved) == 1
+    assert saved[0].name == "Cable Fly"
+    assert saved[0].default_reps == 12
+    assert saved[0].default_weight == 5
+    assert save_button.disabled is False
+
+
+@pytest.mark.asyncio
+async def test_add_exercise_save_disables_repeat_taps(tmp_path, monkeypatch):
+    from components.add_exercise_dialog import show_add_exercise_dialog
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    page = MockPage()
+    show_add_exercise_dialog(page, state, initial_name="Cable Fly")
+    dialog = page.dialog
+    save_button = dialog.actions[1]
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original_add = state.add_custom_exercise
+    calls = 0
+
+    async def delayed_add(**kwargs):
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return await original_add(**kwargs)
+
+    monkeypatch.setattr(state, "add_custom_exercise", delayed_add)
+    first_tap = asyncio.create_task(save_button.on_click(None))
+    await started.wait()
+    assert save_button.disabled is True
+    assert save_button.content == "Saving…"
+    await save_button.on_click(None)
+    assert calls == 1
+    release.set()
+    await first_tap
+    assert save_button.disabled is False
+    assert calls == 1
 
 
 def test_exercises_view_library_and_filtering():
@@ -701,7 +824,10 @@ async def test_tracker_log_btn_blocked_during_timer():
         page = MockPage()
         tracker = TrackerView(page, state)
 
-        # Initially log button should NOT be blocked
+        # An exercise must be chosen before the first set can be logged.
+        assert tracker._is_log_blocked()
+        await state.select_exercise("Pull-ups")
+        tracker.update_ui()
         assert not tracker._is_log_blocked()
 
         # Simulate timer running
@@ -782,8 +908,12 @@ async def test_tracker_filled_button_and_history_badges():
         page = MockPage()
         tracker = TrackerView(page, state)
 
-        # FilledButton type check and default label
+        # The initial action prompts for an exercise.
         assert isinstance(tracker.log_btn, ft.FilledButton)
+        assert tracker.log_btn.content == "SELECT AN EXERCISE"
+        assert tracker.log_btn.disabled is True
+        await state.select_exercise("Pull-ups")
+        tracker.update_ui()
         assert tracker.log_btn.content == "LOG THIS SET"
         assert tracker.log_btn.disabled is False
 
@@ -834,6 +964,8 @@ async def test_log_button_static_rest_label_during_timer():
         tracker = TrackerView(page, state)
 
         # Set timer running
+        await state.select_exercise("Pull-ups")
+        tracker.update_ui()
         state.timer_running = True
         state.timer_seconds_remaining = 30
         tracker._sync_log_btn_state()
@@ -959,6 +1091,47 @@ def test_create_backup_structure():
         backups = storage.get_local_backups()
         assert len(backups) == 1
         assert backups[0] == backup_file
+
+
+@pytest.mark.asyncio
+async def test_recent_backup_button_opens_restore_preview(tmp_path):
+    from components.restore_dialog import show_restore_dialog
+
+    storage = AppStorage(storage_dir=tmp_path)
+    storage.add_record(SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0))
+    storage.create_backup()
+    state = AppState(storage=storage)
+    page = MockPage()
+
+    await show_restore_dialog(page, state)
+    picker = page.dialog
+    recent_button = next(
+        control for control in picker.content.content.controls
+        if isinstance(control, ft.OutlinedButton)
+        and isinstance(control.content, ft.Row)
+        and control.content.controls[1].value.endswith(".json")
+    )
+    await recent_button.on_click(None)
+
+    assert page.dialog is not picker
+    assert page.dialog.title.controls[1].value == "Confirm Restore"
+
+
+@pytest.mark.asyncio
+async def test_backup_copy_button_reports_unavailable_clipboard(tmp_path):
+    from components.backup_dialog import show_backup_dialog
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    page = MockPage()
+    page.platform = ft.PagePlatform.LINUX
+    await show_backup_dialog(page, state)
+    dialog = page.dialog
+    copy_button = dialog.content.content.controls[-1]
+    status_text = dialog.content.content.controls[-3].controls[1]
+
+    await copy_button.on_click(None)
+    assert "unavailable" in status_text.value
+    assert status_text.color == ft.Colors.ERROR
 
 
 def test_restore_backup_merge_mode():
@@ -1156,7 +1329,7 @@ def test_exercise_picker_dialog_search_and_category():
         column_controls = bs_content.content.controls
 
         # Check search input, category row, and list container
-        search_field = column_controls[1]
+        search_field = column_controls[1].controls[0]
         category_row = column_controls[2]
         list_container = column_controls[4]
         list_column = list_container.content
@@ -1193,8 +1366,7 @@ async def test_tracker_exercise_picker_card_updates_state():
         state = AppState(storage=storage)
         tracker = TrackerView(page, state)
 
-        # Current exercise is first default
-        assert tracker.exercise_name_label.value == state.current_exercise.name
+        assert tracker.exercise_name_label.value == "Select Exercise"
 
         # Select a different exercise via state (which the picker calls)
         await state.select_exercise("Barbell Squat")
@@ -1227,7 +1399,7 @@ def test_exercises_view_search_no_duplicates():
         assert "Showing 1 of" in view.count_badge.value
 
 
-def test_light_theme_industry_standard_palette():
+def test_light_theme_coral_palette():
     from theme import (
         COLOR_CONTAINER_HIGHEST_LIGHT,
         COLOR_CONTAINER_LIGHT,
@@ -1239,18 +1411,14 @@ def test_light_theme_industry_standard_palette():
     )
     theme = get_light_theme()
     cs = theme.color_scheme
-    # Pure white cards
-    assert COLOR_CONTAINER_LIGHT == "#FFFFFF"
-    assert cs.surface_container == "#FFFFFF"
-    # Clean soft Slate-100 container highest
-    assert COLOR_CONTAINER_HIGHEST_LIGHT == "#F1F5F9"
-    assert cs.surface_container_highest == "#F1F5F9"
-    # Athletic indigo brand
-    assert COLOR_PRIMARY_LIGHT == "#4F46E5"
-    assert COLOR_PRIMARY_CONTAINER_LIGHT == "#EEF2FF"
-    # Soft canvas
-    assert COLOR_SURFACE_LIGHT == "#F8FAFC"
-    assert COLOR_OUTLINE_VARIANT_LIGHT == "#E2E8F0"
+    assert COLOR_CONTAINER_LIGHT == "#FFFCF8"
+    assert cs.surface_container == COLOR_CONTAINER_LIGHT
+    assert COLOR_CONTAINER_HIGHEST_LIGHT == "#EDE5DD"
+    assert cs.surface_container_highest == COLOR_CONTAINER_HIGHEST_LIGHT
+    assert COLOR_PRIMARY_LIGHT == "#AA3934"
+    assert COLOR_PRIMARY_CONTAINER_LIGHT == "#FCE4DC"
+    assert COLOR_SURFACE_LIGHT == "#F8F5F1"
+    assert COLOR_OUTLINE_VARIANT_LIGHT == "#CEC8C2"
 
 
 def test_tracker_calisthenics_and_weighted_subtitles():
@@ -1262,10 +1430,13 @@ def test_tracker_calisthenics_and_weighted_subtitles():
         state = AppState(storage=storage)
         tracker = TrackerView(page, state)
 
-        # 1. Calisthenics bodyweight exercise (Push-ups: default 15 reps, 0 kg)
+        # The selector prompts for a choice before displaying exercise details.
         tracker.update_ui()
-        assert tracker.exercise_name_label.value == "Push-ups"
-        assert tracker.exercise_category_label.value == "Calisthenics • 15 reps"
+        assert tracker.exercise_name_label.value == "Select Exercise"
+        assert tracker.exercise_category_label.value == "Tap to choose a movement"
+        asyncio.run(state.select_exercise("Pull-ups"))
+        tracker.update_ui()
+        assert tracker.exercise_category_label.value == "Calisthenics • 8 reps"
         assert "@ 0" not in tracker.exercise_category_label.value
 
         # 2. Weighted exercise (Barbell Squat: default 8 reps, 80 kg)
@@ -1288,13 +1459,17 @@ def test_minimal_search_field_and_bottom_sheet_styling():
         bs_content = page.dialog.content
         column_controls = bs_content.content.controls
 
-        # Search field is borderless, has no prefix icon, is filled, and does not expand vertically
-        search_field = column_controls[1]
-        assert isinstance(search_field.border, ft.NoInputBorder)
+        # The search field expands horizontally inside its row without growing vertically.
+        search_row = column_controls[1]
+        assert isinstance(search_row, ft.Row)
+        search_field = search_row.controls[0]
+        assert isinstance(search_field.border, ft.OutlineInputBorder)
+        assert search_field.border.side.color == ft.Colors.TRANSPARENT
         assert search_field.prefix_icon is None
         assert search_field.filled is True
         assert search_field.fill_color == ft.Colors.SURFACE_CONTAINER_HIGHEST
-        assert search_field.expand is False
+        assert search_field.expand is True
+        assert bs_content.content.horizontal_alignment == ft.CrossAxisAlignment.STRETCH
         assert bs_content.content.spacing == 6
         assert column_controls[4].expand is False
 
@@ -1324,7 +1499,7 @@ async def test_appbar_no_dumbbell_icon():
     assert page.appbar is not None
     assert getattr(page.appbar, "leading", None) is None
     assert page.appbar.automatically_imply_leading is False
-    assert page.appbar.center_title is True
+    assert page.appbar.center_title is False
 
 
 def test_tracker_no_dumbbell_no_search_badge_minimal_ui():

@@ -24,10 +24,12 @@ class ExercisesView:
         # Search field (Minimal, borderless)
         self.search_field = ft.TextField(
             hint_text="Search exercise name or category...",
-            border=ft.NoInputBorder(),
+            border=ft.OutlineInputBorder(
+                border_radius=12,
+                side=ft.BorderSide(color=ft.Colors.TRANSPARENT),
+            ),
             dense=True,
             content_padding=ft.Padding(14, 10, 14, 10),
-            border_radius=12,
             filled=True,
             fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             on_change=self._on_search_change,
@@ -95,16 +97,19 @@ class ExercisesView:
         for cat in categories:
             is_active = (cat == self._selected_category)
             pills.append(
-                ft.Container(
+                ft.OutlinedButton(
                     content=ft.Text(
                         cat,
                         size=12,
                         weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.W_500,
-                        color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                    bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                    padding=ft.Padding(12, 6, 12, 6),
-                    border_radius=16,
+                    height=44,
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                        color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
+                        shape=ft.RoundedRectangleBorder(radius=16),
+                        padding=ft.Padding(12, 8, 12, 8),
+                    ),
                     on_click=lambda _, c=cat: self._select_category(c),
                 )
             )

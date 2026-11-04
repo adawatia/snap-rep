@@ -22,7 +22,7 @@ class SettingsView:
 
         # 1. Appearance / Theme
         self.theme_dropdown = ft.Dropdown(
-            label="Theme Mode",
+            label="Color theme",
             label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
             value=self.state.settings.get("theme_mode", "light"),
             border={
@@ -40,10 +40,11 @@ class SettingsView:
             content_padding=ft.Padding(14, 10, 14, 10),
             dense=True,
             menu_height=220,
+            expand=True,
             options=[
-                ft.DropdownOption("light", "Light Mode (Athletic Indigo & Slate)"),
-                ft.DropdownOption("dark", "Dark Mode (Deep Slate & Electric Indigo)"),
-                ft.DropdownOption("system", "Follow System Theme"),
+                ft.DropdownOption("light", "Light · Coral and cream"),
+                ft.DropdownOption("dark", "Dark · Coral and navy"),
+                ft.DropdownOption("system", "Use device setting"),
             ],
             on_select=self._on_theme_select,
         )
@@ -51,7 +52,7 @@ class SettingsView:
         # 2. Rest Timer Preference
         default_rest_val = str(self.state.settings.get("default_rest_timer", 60))
         self.rest_timer_dropdown = ft.Dropdown(
-            label="Default Rest Timer",
+            label="Rest after each set",
             label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
             value=default_rest_val,
             border={
@@ -69,6 +70,7 @@ class SettingsView:
             content_padding=ft.Padding(14, 10, 14, 10),
             dense=True,
             menu_height=260,
+            expand=True,
             options=[ft.DropdownOption(str(sec), label) for sec, label in REST_TIMER_OPTIONS],
             on_select=self._on_rest_timer_select,
         )
@@ -81,7 +83,6 @@ class SettingsView:
 
         # 4. Status summary labels
         self.history_stat_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-        self.exercises_stat_text = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
 
         self.root = self._build_layout()
         self.update_ui()
@@ -127,218 +128,95 @@ class SettingsView:
         total_sets = len(self.state.history)
         self.history_stat_text.value = f"{total_sets} recorded set{'s' if total_sets != 1 else ''} in history"
 
-        total_ex = len(self.state.exercises)
-        custom_ex = sum(1 for e in self.state.exercises if e.is_custom)
-        self.exercises_stat_text.value = (
-            f"{total_ex} exercises ({custom_ex} custom) configured in your library."
-        )
-
     def _build_layout(self) -> ft.Container:
+        def action_tile(icon, title, detail, on_click, destructive=False):
+            color = ft.Colors.ERROR if destructive else ft.Colors.PRIMARY
+            return ft.ListTile(
+                leading=ft.Icon(icon, color=color, size=22),
+                title=ft.Text(title, size=14, weight=ft.FontWeight.W_600, color=color if destructive else None),
+                subtitle=ft.Text(detail, size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                trailing=ft.Icon(ft.Icons.CHEVRON_RIGHT, size=18, color=ft.Colors.ON_SURFACE_VARIANT),
+                content_padding=ft.Padding(12, 4, 12, 4),
+                min_height=64,
+                on_click=on_click,
+            )
+
+        def section(title, controls):
+            return ft.Column(
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    ft.Text(title, size=16, weight=ft.FontWeight.BOLD),
+                    ft.Container(
+                        bgcolor=ft.Colors.SURFACE_CONTAINER,
+                        border_radius=16,
+                        padding=ft.Padding(14, 14, 14, 14),
+                        content=ft.Column(
+                            spacing=14,
+                            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                            controls=controls,
+                        ),
+                    ),
+                ],
+            )
+
         return ft.Container(
-            padding=16,
+            padding=ft.Padding(16, 14, 16, 24),
             expand=True,
             content=ft.Column(
                 scroll=ft.ScrollMode.ADAPTIVE,
-                spacing=16,
+                spacing=22,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
-                    # Page Title
-                    ft.Text("Settings", size=22, weight=ft.FontWeight.BOLD),
-
-                    # 1. Appearance Card
-                    ft.Card(
-                        content=ft.Container(
-                            padding=16,
-                            content=ft.Column(
-                                spacing=10,
-                                controls=[
-                                    ft.Row(
-                                        spacing=8,
-                                        controls=[
-                                            ft.Icon(ft.Icons.PALETTE_OUTLINED, color=ft.Colors.PRIMARY, size=20),
-                                            ft.Text("Appearance", size=15, weight=ft.FontWeight.BOLD),
-                                        ],
-                                    ),
-                                    self.theme_dropdown,
-                                ],
-                            ),
-                        )
-                    ),
-
-                    # 2. Workout & Rest Timer Preferences Card
-                    ft.Card(
-                        content=ft.Container(
-                            padding=16,
-                            content=ft.Column(
-                                spacing=14,
-                                controls=[
-                                    ft.Row(
-                                        spacing=8,
-                                        controls=[
-                                            ft.Icon(ft.Icons.TIMER_OUTLINED, color=ft.Colors.SECONDARY, size=20),
-                                            ft.Text("Workout & Rest Timer", size=15, weight=ft.FontWeight.BOLD),
-                                        ],
-                                    ),
-                                    ft.Column(
-                                        spacing=4,
-                                        controls=[
-                                            self.rest_timer_dropdown,
-                                            ft.Text(
-                                                "Auto-initiates this rest period immediately after logging a set.",
-                                                size=11,
-                                                color=ft.Colors.ON_SURFACE_VARIANT,
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Row(
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        controls=[
-                                            ft.Column(
-                                                spacing=2,
-                                                expand=True,
-                                                controls=[
-                                                    ft.Text("Haptic Feedback", weight=ft.FontWeight.BOLD, size=14),
-                                                    ft.Text(
-                                                        "Tactile vibrations on counter steppers & timer completion.",
-                                                        size=11,
-                                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                                    ),
-                                                ],
-                                            ),
-                                            self.haptic_switch,
-                                        ],
-                                    ),
-                                ],
-                            ),
-                        )
-                    ),
-
-                    # 3. Exercise Library Management Shortcut Card
-                    ft.Card(
-                        content=ft.Container(
-                            padding=16,
-                            content=ft.Column(
-                                spacing=8,
-                                controls=[
-                                    ft.Row(
-                                        spacing=8,
-                                        controls=[
-                                            ft.Icon(ft.Icons.FORMAT_LIST_BULLETED, color=ft.Colors.TERTIARY, size=20),
-                                            ft.Text("Exercise Library", size=15, weight=ft.FontWeight.BOLD),
-                                        ],
-                                    ),
-                                    self.exercises_stat_text,
-                                    ft.Text(
-                                        "Manage your exercises, customize default reps/weights, and add custom movements in the Exercises tab.",
-                                        size=12,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                    ),
-                                ],
-                            ),
-                        )
-                    ),
-
-                    # 4. Data Management & Export Card
-                    ft.Card(
-                        content=ft.Container(
-                            padding=16,
-                            content=ft.Column(
-                                spacing=12,
-                                controls=[
-                                    ft.Row(
-                                        spacing=8,
-                                        controls=[
-                                            ft.Icon(ft.Icons.STORAGE_OUTLINED, color=ft.Colors.PRIMARY, size=20),
-                                            ft.Text("Data Management", size=15, weight=ft.FontWeight.BOLD),
-                                        ],
-                                    ),
-                                    self.history_stat_text,
-                                    ft.Text(
-                                        "Backup your complete workout records and custom exercises, restore from a file, or export as CSV.",
-                                        size=11,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                    ),
-                                    ft.FilledButton(
-                                        content=ft.Row(
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                            spacing=8,
-                                            controls=[
-                                                ft.Icon(ft.Icons.BACKUP, size=18),
-                                                ft.Text("Backup Data (JSON)", weight=ft.FontWeight.BOLD),
-                                            ],
-                                        ),
-                                        on_click=lambda _: asyncio.create_task(
-                                            show_backup_dialog(self.page, self.state)
-                                        ),
-                                    ),
-                                    ft.OutlinedButton(
-                                        content=ft.Row(
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                            spacing=8,
-                                            controls=[
-                                                ft.Icon(ft.Icons.RESTORE, size=18),
-                                                ft.Text("Restore Data", weight=ft.FontWeight.BOLD),
-                                            ],
-                                        ),
-                                        on_click=lambda _: asyncio.create_task(
-                                            show_restore_dialog(self.page, self.state)
-                                        ),
-                                    ),
-                                    ft.OutlinedButton(
-                                        content=ft.Row(
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                            spacing=8,
-                                            controls=[
-                                                ft.Icon(ft.Icons.TABLE_CHART_OUTLINED, size=18),
-                                                ft.Text("Export History to CSV", weight=ft.FontWeight.BOLD),
-                                            ],
-                                        ),
-                                        on_click=lambda _: asyncio.create_task(
-                                            show_export_dialog(self.page, self.state)
-                                        ),
-                                    ),
-                                    ft.TextButton(
-                                        content=ft.Row(
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                            spacing=8,
-                                            controls=[
-                                                ft.Icon(ft.Icons.DELETE_FOREVER, size=18, color=ft.Colors.ERROR),
-                                                ft.Text(
-                                                    "Clear All Workout History",
-                                                    color=ft.Colors.ERROR,
-                                                    weight=ft.FontWeight.BOLD,
-                                                ),
-                                            ],
-                                        ),
-                                        on_click=self._on_clear_all_history,
-                                    ),
-                                ],
-                            ),
-                        )
-                    ),
-
-                    # 5. App Info Card
-                    ft.Card(
-                        content=ft.Container(
-                            padding=16,
-                            content=ft.Column(
-                                spacing=4,
-                                controls=[
-                                    ft.Row(
-                                        spacing=6,
-                                        controls=[
-                                            ft.Icon(ft.Icons.FITNESS_CENTER, size=16, color=ft.Colors.PRIMARY),
-                                            ft.Text(f"{APP_TITLE} v{APP_VERSION}", weight=ft.FontWeight.BOLD, size=14),
-                                        ],
-                                    ),
-                                    ft.Text(
-                                        f"{APP_SUBTITLE} Built with Flet & Material 3 for Android.",
-                                        size=12,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                    ),
-                                ],
-                            ),
-                        )
+                    section("Appearance", [
+                        ft.Text("Choose how SnapRep looks on this device.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Row(controls=[self.theme_dropdown]),
+                    ]),
+                    section("Workout", [
+                        ft.Row(controls=[self.rest_timer_dropdown]),
+                        ft.Text("Starts automatically after you log a set.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Column(spacing=3, expand=True, controls=[
+                                    ft.Text("Haptic feedback", size=14, weight=ft.FontWeight.W_600),
+                                    ft.Text("Vibration for reps and timer alerts", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ]),
+                                self.haptic_switch,
+                            ],
+                        ),
+                    ]),
+                    ft.Column(spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
+                        ft.Text("Your data", size=16, weight=ft.FontWeight.BOLD),
+                        self.history_stat_text,
+                        ft.Container(
+                            bgcolor=ft.Colors.SURFACE_CONTAINER,
+                            border_radius=16,
+                            content=ft.Column(spacing=0, controls=[
+                                action_tile(
+                                    ft.Icons.BACKUP_OUTLINED, "Back up data", "Save workouts and exercises as JSON",
+                                    lambda _: asyncio.create_task(show_backup_dialog(self.page, self.state)),
+                                ),
+                                action_tile(
+                                    ft.Icons.RESTORE, "Restore data", "Import a saved JSON backup",
+                                    lambda _: asyncio.create_task(show_restore_dialog(self.page, self.state)),
+                                ),
+                                action_tile(
+                                    ft.Icons.TABLE_CHART_OUTLINED, "Export history", "Save workout sets as CSV",
+                                    lambda _: asyncio.create_task(show_export_dialog(self.page, self.state)),
+                                ),
+                            ]),
+                        ),
+                        action_tile(
+                            ft.Icons.DELETE_OUTLINE, "Clear workout history", "Permanently remove recorded sets",
+                            self._on_clear_all_history, destructive=True,
+                        ),
+                    ]),
+                    ft.Text(
+                        f"{APP_TITLE} v{APP_VERSION} · {APP_SUBTITLE}",
+                        size=11,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
                 ],
             ),

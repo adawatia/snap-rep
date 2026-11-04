@@ -1,0 +1,79 @@
+[
+  {
+    "name": "Push-ups",
+    "category": "Calisthenics",
+    "default_reps": 15,
+    "default_weight": 0.0,
+    "is_custom": false
+  },
+  {
+    "name": "Pull-ups",
+    "category": "Calisthenics",
+    "default_reps": 8,
+    "default_weight": 0.0,
+    "is_custom": false
+  },
+  {
+    "name": "Dips",
+    "category": "Calisthenics",
+    "default_reps": 12,
+    "default_weight": 0.0,
+    "is_custom": false
+  },
+  {
+    "name": "Bodyweight Squats",
+    "category": "Legs",
+    "default_reps": 20,
+    "default_weight": 0.0,
+    "is_custom": false
+  },
+  {
+    "name": "Barbell Bench Press",
+    "category": "Chest",
+    "default_reps": 10,
+    "default_weight": 60.0,
+    "is_custom": false
+  },
+  {
+    "name": "Barbell Squat",
+    "category": "Legs",
+    "default_reps": 8,
+    "default_weight": 80.0,
+    "is_custom": false
+  },
+  {
+    "name": "Deadlift",
+    "category": "Back",
+    "default_reps": 5,
+    "default_weight": 100.0,
+    "is_custom": false
+  },
+  {
+    "name": "Overhead Press",
+    "category": "Shoulders",
+    "default_reps": 8,
+    "default_weight": 40.0,
+    "is_custom": false
+  },
+  {
+    "name": "Dumbbell Bicep Curl",
+    "category": "Arms",
+    "default_reps": 12,
+    "default_weight": 14.0,
+    "is_custom": false
+  },
+  {
+    "name": "Tricep Pushdown",
+    "category": "Arms",
+    "default_reps": 15,
+    "default_weight": 25.0,
+    "is_custom": false
+  },
+  {
+    "name": "Lateral Raise",
+    "category": "Shoulders",
+    "default_reps": 15,
+    "default_weight": 8.0,
+    "is_custom": false
+  }
+]
