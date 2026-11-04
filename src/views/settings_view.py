@@ -41,7 +41,7 @@ class SettingsView:
             dense=True,
             menu_height=220,
             options=[
-                ft.DropdownOption("light", "Light Mode (Athletic Emerald & Indigo)"),
+                ft.DropdownOption("light", "Light Mode (Athletic Indigo & Slate)"),
                 ft.DropdownOption("dark", "Dark Mode (Deep Slate & Electric Indigo)"),
                 ft.DropdownOption("system", "Follow System Theme"),
             ],

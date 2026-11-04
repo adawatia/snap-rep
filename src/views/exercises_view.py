@@ -22,12 +22,15 @@ class ExercisesView:
         self._filter_query = ""
         self._selected_category = "All"
 
-        # Search field
+        # Search field (Minimal, borderless)
         self.search_field = ft.TextField(
             hint_text="Search exercise name or category...",
-            prefix_icon=ft.Icons.SEARCH,
+            border=ft.NoInputBorder(),
             dense=True,
-            content_padding=ft.Padding(12, 10, 12, 10),
+            content_padding=ft.Padding(14, 10, 14, 10),
+            border_radius=12,
+            filled=True,
+            fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             on_change=self._on_search_change,
             expand=True,
         )
@@ -176,7 +179,11 @@ class ExercisesView:
             return
 
         for ex in filtered:
-            wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
+            if ex.default_weight == 0 or ex.category.lower() == "calisthenics":
+                target_str = f"{ex.category} • Default {ex.default_reps} reps"
+            else:
+                wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
+                target_str = f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}"
             badge_color = ft.Colors.PRIMARY if ex.is_custom else ft.Colors.OUTLINE
             badge_text = "Custom" if ex.is_custom else "Built-in"
 
@@ -249,7 +256,7 @@ class ExercisesView:
                                                 ],
                                             ),
                                             ft.Text(
-                                                f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}",
+                                                target_str,
                                                 size=12,
                                                 color=ft.Colors.ON_SURFACE_VARIANT,
                                             ),

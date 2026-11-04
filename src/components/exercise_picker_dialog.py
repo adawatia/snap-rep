@@ -24,7 +24,7 @@ def show_exercise_picker(
     sheet_title = ft.Text("Select Exercise", size=17, weight=ft.FontWeight.BOLD)
     count_badge = ft.Text("", size=11, color=ft.Colors.ON_SURFACE_VARIANT)
 
-    # 2. Search input
+    # 2. Search input (Minimal, borderless, no icon)
     def on_search_change(e):
         nonlocal search_query
         search_query = (e.control.value or "").strip().lower()
@@ -33,9 +33,9 @@ def show_exercise_picker(
 
     search_field = ft.TextField(
         hint_text="Search exercise or category...",
-        prefix_icon=ft.Icons.SEARCH,
+        border=ft.NoInputBorder(),
         dense=True,
-        content_padding=ft.Padding(12, 8, 12, 8),
+        content_padding=ft.Padding(14, 10, 14, 10),
         border_radius=12,
         filled=True,
         fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
@@ -131,7 +131,9 @@ def show_exercise_picker(
 
             filtered.append(ex)
 
+        is_filtering = bool(search_query or selected_category != "All")
         count_badge.value = f"Showing {len(filtered)} of {len(deduped_exercises)} exercises"
+        count_badge.visible = is_filtering
 
         cards: List[ft.Control] = []
         if not filtered:
@@ -178,9 +180,11 @@ def show_exercise_picker(
 
         for ex in filtered:
             is_current = (ex.name.strip().lower() == current_name_clean)
-            wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
-            badge_color = ft.Colors.PRIMARY if ex.is_custom else ft.Colors.OUTLINE
-            badge_text = "Custom" if ex.is_custom else "Built-in"
+            if ex.default_weight == 0 or ex.category.lower() == "calisthenics":
+                target_str = f"{ex.category} • Default {ex.default_reps} reps"
+            else:
+                wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
+                target_str = f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}"
 
             card_border = (
                 ft.Border.all(1.5, ft.Colors.PRIMARY)
@@ -190,8 +194,57 @@ def show_exercise_picker(
             card_bgcolor = (
                 ft.Colors.PRIMARY_CONTAINER
                 if is_current
-                else ft.Colors.SURFACE_CONTAINER_HIGHEST
+                else ft.Colors.SURFACE_CONTAINER
             )
+
+            # Left controls: show checkmark for selected, clean text with no icon for unselected
+            left_controls: List[ft.Control] = []
+            if is_current:
+                left_controls.append(
+                    ft.Icon(
+                        ft.Icons.CHECK_CIRCLE,
+                        size=18,
+                        color=ft.Colors.PRIMARY,
+                    )
+                )
+
+            left_controls.append(
+                ft.Column(
+                    spacing=2,
+                    expand=True,
+                    controls=[
+                        ft.Text(
+                            ex.name,
+                            weight=ft.FontWeight.BOLD,
+                            size=14,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        ft.Text(
+                            target_str,
+                            size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                )
+            )
+
+            # Right badge: only show Custom badge for custom exercises (built-in badge removed for minimal UI)
+            right_controls: List[ft.Control] = []
+            if ex.is_custom:
+                right_controls.append(
+                    ft.Container(
+                        content=ft.Text(
+                            "Custom",
+                            size=9,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.PRIMARY,
+                        ),
+                        padding=ft.Padding(5, 2, 5, 2),
+                        border=ft.Border.all(1, ft.Colors.PRIMARY),
+                        border_radius=6,
+                    )
+                )
 
             item = ft.Container(
                 content=ft.Row(
@@ -201,46 +254,12 @@ def show_exercise_picker(
                         ft.Row(
                             spacing=10,
                             expand=True,
-                            controls=[
-                                ft.Icon(
-                                    ft.Icons.CHECK_CIRCLE if is_current else ft.Icons.FITNESS_CENTER,
-                                    size=18,
-                                    color=ft.Colors.PRIMARY if is_current else ft.Colors.ON_SURFACE_VARIANT,
-                                ),
-                                ft.Column(
-                                    spacing=2,
-                                    expand=True,
-                                    controls=[
-                                        ft.Text(
-                                            ex.name,
-                                            weight=ft.FontWeight.BOLD,
-                                            size=14,
-                                            max_lines=1,
-                                            overflow=ft.TextOverflow.ELLIPSIS,
-                                        ),
-                                        ft.Text(
-                                            f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}",
-                                            size=11,
-                                            color=ft.Colors.ON_SURFACE_VARIANT,
-                                        ),
-                                    ],
-                                ),
-                            ],
+                            controls=left_controls,
                         ),
-                        ft.Container(
-                            content=ft.Text(
-                                badge_text,
-                                size=9,
-                                weight=ft.FontWeight.BOLD,
-                                color=badge_color,
-                            ),
-                            padding=ft.Padding(5, 2, 5, 2),
-                            border=ft.Border.all(1, badge_color),
-                            border_radius=6,
-                        ),
+                        *right_controls,
                     ],
                 ),
-                padding=ft.Padding(12, 9, 12, 9),
+                padding=ft.Padding(12, 10, 12, 10),
                 border=card_border,
                 border_radius=10,
                 bgcolor=card_bgcolor,
@@ -257,21 +276,15 @@ def show_exercise_picker(
     sheet_content = ft.Container(
         padding=ft.Padding(16, 8, 16, 16),
         content=ft.Column(
-            spacing=10,
+            spacing=8,
             tight=True,
             controls=[
-                # Top Header Row: Title, count, + Custom icon, close icon
+                # Top Header Row: Clean minimal title, + Custom button, Close button
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
-                        ft.Row(
-                            spacing=6,
-                            controls=[
-                                ft.Icon(ft.Icons.FITNESS_CENTER, size=20, color=ft.Colors.PRIMARY),
-                                sheet_title,
-                            ],
-                        ),
+                        sheet_title,
                         ft.Row(
                             spacing=2,
                             controls=[
@@ -292,11 +305,11 @@ def show_exercise_picker(
                         ),
                     ],
                 ),
-                # Search Bar Row
+                # Minimal Borderless Search Bar
                 search_field,
                 # Category Filter Pills
                 category_row,
-                # Info badge
+                # Info badge (visible only when actively filtering)
                 count_badge,
                 # Scrollable exercises list
                 list_container,

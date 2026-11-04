@@ -1225,3 +1225,83 @@ def test_exercises_view_search_no_duplicates():
         # Despite 3 duplicate instances in state, search results must display exactly 1 card
         assert len(view.exercise_list_column.controls) == 1
         assert "Showing 1 of" in view.count_badge.value
+
+
+def test_light_theme_industry_standard_palette():
+    from theme import (
+        COLOR_CONTAINER_HIGHEST_LIGHT,
+        COLOR_CONTAINER_LIGHT,
+        COLOR_OUTLINE_VARIANT_LIGHT,
+        COLOR_PRIMARY_CONTAINER_LIGHT,
+        COLOR_PRIMARY_LIGHT,
+        COLOR_SURFACE_LIGHT,
+        get_light_theme,
+    )
+    theme = get_light_theme()
+    cs = theme.color_scheme
+    # Pure white cards
+    assert COLOR_CONTAINER_LIGHT == "#FFFFFF"
+    assert cs.surface_container == "#FFFFFF"
+    # Clean soft Slate-100 container highest
+    assert COLOR_CONTAINER_HIGHEST_LIGHT == "#F1F5F9"
+    assert cs.surface_container_highest == "#F1F5F9"
+    # Athletic indigo brand
+    assert COLOR_PRIMARY_LIGHT == "#4F46E5"
+    assert COLOR_PRIMARY_CONTAINER_LIGHT == "#EEF2FF"
+    # Soft canvas
+    assert COLOR_SURFACE_LIGHT == "#F8FAFC"
+    assert COLOR_OUTLINE_VARIANT_LIGHT == "#E2E8F0"
+
+
+def test_tracker_calisthenics_and_weighted_subtitles():
+    from views.tracker_view import TrackerView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        tracker = TrackerView(page, state)
+
+        # 1. Calisthenics bodyweight exercise (Push-ups: default 15 reps, 0 kg)
+        tracker.update_ui()
+        assert tracker.exercise_name_label.value == "Push-ups"
+        assert tracker.exercise_category_label.value == "Calisthenics • 15 reps"
+        assert "@ 0" not in tracker.exercise_category_label.value
+
+        # 2. Weighted exercise (Barbell Squat: default 8 reps, 80 kg)
+        asyncio.run(state.select_exercise("Barbell Squat"))
+        tracker.update_ui()
+        assert tracker.exercise_name_label.value == "Barbell Squat"
+        assert tracker.exercise_category_label.value == "Legs • 8 reps @ 80kg"
+
+
+def test_minimal_search_field_and_bottom_sheet_styling():
+    from components.exercise_picker_dialog import show_exercise_picker
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        show_exercise_picker(page, state)
+
+        assert page.dialog is not None
+        bs_content = page.dialog.content
+        column_controls = bs_content.content.controls
+
+        # Search field is borderless, has no prefix icon, and is filled
+        search_field = column_controls[1]
+        assert isinstance(search_field.border, ft.NoInputBorder)
+        assert search_field.prefix_icon is None
+        assert search_field.filled is True
+        assert search_field.fill_color == ft.Colors.SURFACE_CONTAINER_HIGHEST
+
+        # Count badge is hidden when not filtering
+        count_badge = column_controls[3]
+        assert count_badge.visible is False
+
+        # Count badge becomes visible when searching
+        search_field.value = "push-ups"
+        search_field.on_change(type("Event", (), {"control": search_field})())
+        assert count_badge.visible is True
+        assert "Showing 1 of" in count_badge.value
+

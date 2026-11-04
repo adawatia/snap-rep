@@ -55,7 +55,7 @@ async def main(page: ft.Page):
     content_area = ft.Container(
         content=view_instances[current_tab_index].root,
         expand=True,
-        padding=ft.Padding(0, 4, 0, 0),
+        padding=0,
     )
 
     def on_nav_change(e):
@@ -83,7 +83,7 @@ async def main(page: ft.Page):
         leading=ft.Icon(ft.Icons.FITNESS_CENTER, color=ft.Colors.PRIMARY),
         title=ft.Text(APP_TITLE, weight=ft.FontWeight.BOLD),
         center_title=True,
-        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+        bgcolor=ft.Colors.SURFACE_CONTAINER,
     )
 
     # Initial Mount with Android SafeArea
