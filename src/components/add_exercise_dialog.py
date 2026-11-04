@@ -12,9 +12,13 @@ def show_add_exercise_dialog(
     page: ft.Page,
     state: AppState,
     on_success: Optional[Callable[[Exercise], None]] = None,
+    initial_name: str = "",
 ) -> None:
+    is_saving = False
+
     name_field = ft.TextField(
         label="Exercise Name (e.g. Incline DB Press)",
+        value=initial_name,
         autofocus=True,
         border_radius=12,
     )
@@ -52,16 +56,23 @@ def show_add_exercise_dialog(
     )
 
     async def handle_save(e):
+        nonlocal is_saving
+        if is_saving:
+            return
+        is_saving = True
+
         clean_name = (name_field.value or "").strip()
         name_field.error_text = None
 
         if not clean_name:
             name_field.error_text = "Exercise name cannot be empty."
+            is_saving = False
             page.update()
             return
 
         if state.storage.has_exercise(clean_name):
             name_field.error_text = f"'{clean_name}' already exists."
+            is_saving = False
             page.update()
             return
 
@@ -94,6 +105,7 @@ def show_add_exercise_dialog(
             page.update()
         except ValueError as err:
             name_field.error_text = str(err)
+            is_saving = False
             page.update()
 
     page.show_dialog(

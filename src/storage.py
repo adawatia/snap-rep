@@ -203,22 +203,35 @@ class AppStorage:
         try:
             with open(self.exercises_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                loaded = [
-                    Exercise.from_dict(item) for item in data if isinstance(item, dict)
-                ]
-                if not loaded:
+                seen_names = set()
+                deduped: List[Exercise] = []
+                for item in data:
+                    if isinstance(item, dict):
+                        ex = Exercise.from_dict(item)
+                        clean = ex.name.strip().lower()
+                        if clean and clean not in seen_names:
+                            seen_names.add(clean)
+                            deduped.append(ex)
+                if not deduped:
                     defaults = get_default_exercises()
                     self.save_exercises(defaults)
                     return list(defaults)
-                self._exercises_cache = loaded
-                return list(loaded)
+                self._exercises_cache = deduped
+                return list(deduped)
         except Exception:
             return get_default_exercises()
 
     def save_exercises(self, exercises: List[Exercise]) -> None:
-        self._exercises_cache = list(exercises)
+        seen_names = set()
+        deduped: List[Exercise] = []
+        for e in exercises:
+            clean = e.name.strip().lower()
+            if clean and clean not in seen_names:
+                seen_names.add(clean)
+                deduped.append(e)
+        self._exercises_cache = deduped
         try:
-            _atomic_write_json(self.exercises_file, [e.to_dict() for e in exercises])
+            _atomic_write_json(self.exercises_file, [e.to_dict() for e in deduped])
         except Exception:
             pass
 
@@ -230,6 +243,9 @@ class AppStorage:
         return any(e.name.strip().lower() == clean_name for e in exercises)
 
     def add_exercise(self, exercise: Exercise) -> List[Exercise]:
+        clean_name = exercise.name.strip().lower()
+        if not clean_name:
+            raise ValueError("Exercise name cannot be empty.")
         if self.has_exercise(exercise.name):
             raise ValueError(
                 f"An exercise named '{exercise.name.strip()}' already exists."
@@ -240,7 +256,7 @@ class AppStorage:
         exercise.name = exercise.name.strip()
         exercises.insert(0, exercise)
         self.save_exercises(exercises)
-        return exercises
+        return list(self._exercises_cache or exercises)
 
     def delete_custom_exercise(self, name: str) -> List[Exercise]:
         exercises = self.load_exercises()

@@ -41,6 +41,8 @@ class AppState:
         self._last_logged_tuple: Optional[Tuple[str, int, float]] = None
         self._log_lock = asyncio.Lock()
         self._logging_in_progress: bool = False  # synchronous gate before the async lock
+        self._exercise_lock = asyncio.Lock()
+        self._exercise_op_in_progress: bool = False
 
         # Services
         self.haptic: Optional[ft.HapticFeedback] = None
@@ -276,27 +278,36 @@ class AppState:
     async def add_custom_exercise(
         self, name: str, category: str, default_reps: int, default_weight: float
     ) -> Exercise:
+        if self._exercise_op_in_progress:
+            raise ValueError("Exercise addition is already in progress.")
+
         clean_name = name.strip()
         if not clean_name:
             raise ValueError("Exercise name cannot be empty.")
-        if self.storage.has_exercise(clean_name):
-            raise ValueError(f"An exercise named '{clean_name}' already exists.")
 
-        reps = max(1, min(999, default_reps))
-        weight = max(0.0, min(1000.0, default_weight))
+        self._exercise_op_in_progress = True
+        try:
+            async with self._exercise_lock:
+                if self.storage.has_exercise(clean_name):
+                    raise ValueError(f"An exercise named '{clean_name}' already exists.")
 
-        new_ex = Exercise(
-            name=clean_name,
-            category=category or "Other",
-            default_reps=reps,
-            default_weight=weight,
-            is_custom=True,
-        )
-        self.exercises = self.storage.add_exercise(new_ex)
-        await self.select_exercise(new_ex.name)
-        await self.trigger_haptic("vibrate")
-        self.notify()
-        return new_ex
+                reps = max(1, min(999, default_reps))
+                weight = max(0.0, min(1000.0, default_weight))
+
+                new_ex = Exercise(
+                    name=clean_name,
+                    category=category or "Other",
+                    default_reps=reps,
+                    default_weight=weight,
+                    is_custom=True,
+                )
+                self.exercises = self.storage.add_exercise(new_ex)
+                await self.select_exercise(new_ex.name)
+                await self.trigger_haptic("vibrate")
+                self.notify()
+                return new_ex
+        finally:
+            self._exercise_op_in_progress = False
 
     async def update_exercise(
         self,

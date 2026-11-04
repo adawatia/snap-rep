@@ -1096,3 +1096,132 @@ def test_stats_view_rendering():
 
 
 
+
+
+def test_storage_exercise_deduplication():
+    import json
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        # Write json with duplicate custom exercises
+        raw_data = [
+            {"name": "Push-ups", "category": "Calisthenics", "default_reps": 15, "default_weight": 0.0, "is_custom": False},
+            {"name": "Lateral Raise", "category": "Shoulders", "default_reps": 12, "default_weight": 10.0, "is_custom": True},
+            {"name": "lateral raise", "category": "Shoulders", "default_reps": 12, "default_weight": 10.0, "is_custom": True},
+            {"name": "  Lateral Raise  ", "category": "Shoulders", "default_reps": 12, "default_weight": 10.0, "is_custom": True},
+        ]
+        with open(storage.exercises_file, "w", encoding="utf-8") as f:
+            json.dump(raw_data, f)
+
+        # Clear cache to force reload
+        storage._exercises_cache = None
+        exercises = storage.load_exercises()
+        names = [e.name for e in exercises]
+        assert names.count("Push-ups") == 1
+        assert names.count("Lateral Raise") == 1
+        assert len(exercises) == 2
+
+
+@pytest.mark.asyncio
+async def test_add_custom_exercise_concurrent_guard():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        t1 = asyncio.create_task(state.add_custom_exercise("Hammer Curl", "Arms", 10, 16.0))
+        t2 = asyncio.create_task(state.add_custom_exercise("Hammer Curl", "Arms", 10, 16.0))
+        results = await asyncio.gather(t1, t2, return_exceptions=True)
+        # Exactly one should succeed, and one should fail with ValueError
+        succeeded = [r for r in results if isinstance(r, Exercise)]
+        failed = [r for r in results if isinstance(r, ValueError)]
+        assert len(succeeded) == 1
+        assert len(failed) == 1
+        assert sum(1 for e in state.exercises if e.name.strip().lower() == "hammer curl") == 1
+
+
+def test_exercise_picker_dialog_search_and_category():
+    from components.exercise_picker_dialog import show_exercise_picker
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        # Add custom exercise
+        storage.add_exercise(Exercise("Incline DB Flye", "Chest", 12, 18.0, is_custom=True))
+        state.exercises = storage.load_exercises()
+
+        selected_holder = []
+        show_exercise_picker(page, state, on_select=lambda ex: selected_holder.append(ex))
+        assert page.dialog is not None
+        bs_content = page.dialog.content
+        column_controls = bs_content.content.controls
+
+        # Check search input, category row, and list container
+        search_field = column_controls[1]
+        category_row = column_controls[2]
+        list_container = column_controls[4]
+        list_column = list_container.content
+
+        # Initial list contains all exercises
+        assert len(list_column.controls) == len(state.exercises)
+
+        # 1. Test search filter
+        search_field.value = "incline"
+        search_field.on_change(type("Event", (), {"control": search_field})())
+        assert len(list_column.controls) == 1
+
+        # 2. Test category filter for "Chest" (clear search query first)
+        search_field.value = ""
+        search_field.on_change(type("Event", (), {"control": search_field})())
+        chest_pill = next(p for p in category_row.controls if p.content.value == "Chest")
+        chest_pill.on_click(None)
+        # Should match Incline DB Flye and Barbell Bench Press
+        assert len(list_column.controls) >= 2
+
+        # 3. Test "Custom Only"
+        custom_pill = next(p for p in category_row.controls if p.content.value == "Custom Only")
+        custom_pill.on_click(None)
+        assert len(list_column.controls) == 1
+
+
+@pytest.mark.asyncio
+async def test_tracker_exercise_picker_card_updates_state():
+    from views.tracker_view import TrackerView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        tracker = TrackerView(page, state)
+
+        # Current exercise is first default
+        assert tracker.exercise_name_label.value == state.current_exercise.name
+
+        # Select a different exercise via state (which the picker calls)
+        await state.select_exercise("Barbell Squat")
+        tracker.update_ui()
+        assert tracker.exercise_name_label.value == "Barbell Squat"
+        assert state.current_exercise.name == "Barbell Squat"
+        assert tracker.exercise_category_label.value.startswith("Legs")
+
+
+def test_exercises_view_search_no_duplicates():
+    from views.exercises_view import ExercisesView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+
+        # Inject duplicate custom exercises directly into raw state
+        custom_ex1 = Exercise("Concentration Curl", "Arms", 10, 14.0, is_custom=True)
+        custom_ex2 = Exercise("concentration curl", "Arms", 10, 14.0, is_custom=True)
+        custom_ex3 = Exercise("  Concentration Curl  ", "Arms", 10, 14.0, is_custom=True)
+        state.exercises.extend([custom_ex1, custom_ex2, custom_ex3])
+
+        view = ExercisesView(page, state)
+        view.search_field.value = "concentration"
+        view._on_search_change(type("Event", (), {"control": view.search_field})())
+
+        # Despite 3 duplicate instances in state, search results must display exactly 1 card
+        assert len(view.exercise_list_column.controls) == 1
+        assert "Showing 1 of" in view.count_badge.value

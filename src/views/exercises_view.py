@@ -112,8 +112,17 @@ class ExercisesView:
         query = self._filter_query
         cat = self._selected_category
 
-        filtered = []
+        # Defensive deduplication across all exercises
+        seen_names = set()
+        deduped_exercises: list[Exercise] = []
         for ex in self.state.exercises:
+            clean = ex.name.strip().lower()
+            if clean and clean not in seen_names:
+                seen_names.add(clean)
+                deduped_exercises.append(ex)
+
+        filtered = []
+        for ex in deduped_exercises:
             # Query match
             if query and query not in ex.name.lower() and query not in ex.category.lower():
                 continue
@@ -124,10 +133,34 @@ class ExercisesView:
                 continue
             filtered.append(ex)
 
-        self.count_badge.value = f"Showing {len(filtered)} of {len(self.state.exercises)} exercises"
+        self.count_badge.value = f"Showing {len(filtered)} of {len(deduped_exercises)} exercises"
 
         cards: list[ft.Control] = []
         if not filtered:
+            controls_list = [
+                ft.Icon(ft.Icons.SEARCH_OFF, size=36, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Text("No exercises match your search.", size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+            ]
+            if query:
+                controls_list.append(
+                    ft.Button(
+                        content=ft.Row(
+                            spacing=4,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.ADD, size=16),
+                                ft.Text(f"Add '{query.title()}' as Custom", weight=ft.FontWeight.BOLD, size=12),
+                            ],
+                        ),
+                        on_click=lambda _: show_add_exercise_dialog(
+                            self.page,
+                            self.state,
+                            initial_name=query.title(),
+                            on_success=lambda _: self.update_ui(),
+                        ),
+                    )
+                )
+
             cards.append(
                 ft.Container(
                     padding=32,
@@ -135,10 +168,7 @@ class ExercisesView:
                     content=ft.Column(
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=8,
-                        controls=[
-                            ft.Icon(ft.Icons.SEARCH_OFF, size=36, color=ft.Colors.ON_SURFACE_VARIANT),
-                            ft.Text("No exercises match your search.", size=14, color=ft.Colors.ON_SURFACE_VARIANT),
-                        ],
+                        controls=controls_list,
                     ),
                 )
             )

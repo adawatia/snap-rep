@@ -6,6 +6,7 @@ import asyncio
 import flet as ft
 
 from components.add_exercise_dialog import show_add_exercise_dialog
+from components.exercise_picker_dialog import show_exercise_picker
 from state import AppState
 
 
@@ -81,29 +82,87 @@ class TrackerView:
             controls=[],
         )
 
-        # Exercise dropdown
-        self.exercise_dropdown = ft.Dropdown(
-            options=self._build_exercise_options(),
-            value=self.state.current_exercise.name,
-            label="Select Exercise",
-            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
-            border={
-                ft.ControlState.DEFAULT: ft.OutlineInputBorder(
-                    border_radius=12,
-                    side=ft.BorderSide(color=ft.Colors.OUTLINE_VARIANT),
-                ),
-                ft.ControlState.FOCUSED: ft.OutlineInputBorder(
-                    border_radius=12,
-                    side=ft.BorderSide(color=ft.Colors.PRIMARY, width=1.5),
-                ),
-            },
-            filled=True,
-            fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-            content_padding=ft.Padding(14, 8, 14, 8),
-            menu_height=300,
-            dense=True,
-            on_select=self._on_exercise_select,
+        # Exercise Selector Card (Opens searchable bottom sheet with category filters)
+        self.exercise_name_label = ft.Text(
+            self.state.current_exercise.name,
+            size=14,
+            weight=ft.FontWeight.BOLD,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        self.exercise_category_label = ft.Text(
+            "",
+            size=11,
+            color=ft.Colors.ON_SURFACE_VARIANT,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        self.exercise_badge_text = ft.Text("Built-in", size=9, weight=ft.FontWeight.BOLD)
+        self.exercise_badge = ft.Container(
+            content=self.exercise_badge_text,
+            padding=ft.Padding(5, 2, 5, 2),
+            border_radius=6,
+        )
+
+        self.exercise_selector_card = ft.Container(
             expand=True,
+            padding=ft.Padding(12, 8, 12, 8),
+            border_radius=12,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            on_click=self._open_exercise_picker,
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Row(
+                        spacing=10,
+                        expand=True,
+                        controls=[
+                            ft.Icon(
+                                ft.Icons.FITNESS_CENTER,
+                                size=20,
+                                color=ft.Colors.PRIMARY,
+                            ),
+                            ft.Column(
+                                spacing=1,
+                                expand=True,
+                                controls=[
+                                    ft.Row(
+                                        spacing=6,
+                                        controls=[
+                                            ft.Container(
+                                                content=self.exercise_name_label,
+                                                expand=True,
+                                            ),
+                                            self.exercise_badge,
+                                        ],
+                                    ),
+                                    self.exercise_category_label,
+                                ],
+                            ),
+                        ],
+                    ),
+                    ft.Row(
+                        spacing=4,
+                        controls=[
+                            ft.Container(
+                                content=ft.Row(
+                                    spacing=2,
+                                    controls=[
+                                        ft.Icon(ft.Icons.SEARCH, size=14, color=ft.Colors.PRIMARY),
+                                        ft.Text("Search", size=11, color=ft.Colors.PRIMARY, weight=ft.FontWeight.BOLD),
+                                    ],
+                                ),
+                                padding=ft.Padding(7, 3, 7, 3),
+                                bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                                border_radius=8,
+                            ),
+                            ft.Icon(ft.Icons.ARROW_DROP_DOWN, color=ft.Colors.ON_SURFACE_VARIANT, size=18),
+                        ],
+                    ),
+                ],
+            ),
         )
 
         self._refresh_timer_pills()
@@ -127,19 +186,12 @@ class TrackerView:
     def _format_weight(self, wt: float) -> str:
         return str(int(wt) if wt.is_integer() else round(wt, 1))
 
-    def _build_exercise_options(self) -> list[ft.DropdownOption]:
-        return [
-            ft.DropdownOption(
-                key=ex.name,
-                text=f"{ex.name} • {ex.category}" + (" (Custom)" if ex.is_custom else ""),
-            )
-            for ex in self.state.exercises
-        ]
-
-    async def _on_exercise_select(self, e) -> None:
-        if self.exercise_dropdown.value:
-            await self.state.select_exercise(self.exercise_dropdown.value)
-            self.page.update()
+    def _open_exercise_picker(self, e) -> None:
+        show_exercise_picker(
+            self.page,
+            self.state,
+            on_select=lambda _: self.update_ui(),
+        )
 
     def _open_add_dialog(self, e) -> None:
         show_add_exercise_dialog(
@@ -285,9 +337,14 @@ class TrackerView:
             size=11,
         )
 
-        # Dropdown
-        self.exercise_dropdown.options = self._build_exercise_options()
-        self.exercise_dropdown.value = self.state.current_exercise.name
+        # Exercise Selector Card sync
+        cur = self.state.current_exercise
+        self.exercise_name_label.value = cur.name
+        formatted_default_wt = self._format_weight(cur.default_weight)
+        self.exercise_category_label.value = f"{cur.category} • Default: {cur.default_reps} reps @ {formatted_default_wt}kg"
+        self.exercise_badge_text.value = "Custom" if cur.is_custom else "Built-in"
+        self.exercise_badge_text.color = ft.Colors.PRIMARY if cur.is_custom else ft.Colors.OUTLINE
+        self.exercise_badge.border = ft.Border.all(1, ft.Colors.PRIMARY if cur.is_custom else ft.Colors.OUTLINE)
 
         # Timer
         mins = self.state.timer_seconds_remaining // 60
@@ -321,7 +378,7 @@ class TrackerView:
                             spacing=6,
                             alignment=ft.MainAxisAlignment.CENTER,
                             controls=[
-                                self.exercise_dropdown,
+                                self.exercise_selector_card,
                                 ft.IconButton(
                                     icon=ft.Icons.ADD_CIRCLE_OUTLINE,
                                     icon_color=ft.Colors.PRIMARY,
