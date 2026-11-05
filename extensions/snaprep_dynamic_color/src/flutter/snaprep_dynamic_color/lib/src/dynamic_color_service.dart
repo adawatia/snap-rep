@@ -1,6 +1,7 @@
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flet/flet.dart';
 import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart' as material_ui;
 
 class SnaprepDynamicColorService extends FletService {
   SnaprepDynamicColorService({required super.control});
@@ -36,7 +37,7 @@ class SnaprepDynamicColorService extends FletService {
     }
   }
 
-  Map<String, String> _roles(ColorScheme scheme) {
+  Map<String, String> _roles(material_ui.ColorScheme scheme) {
     String hex(Color color) => '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
     return {
       'primary': hex(scheme.primary),

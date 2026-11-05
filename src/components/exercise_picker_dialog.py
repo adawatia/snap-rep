@@ -1,10 +1,10 @@
 """Exercise picker bottom sheet: Fast, searchable, and category-filtered exercise selection."""
 
-import asyncio
 from typing import Callable, List, Optional
 import flet as ft
 
 from components.add_exercise_dialog import show_add_exercise_dialog
+from components.exercise_browse import exercise_defaults, filter_exercises
 from config import EXERCISE_CATEGORIES
 from models import Exercise
 from state import AppState
@@ -27,7 +27,7 @@ def show_exercise_picker(
     # 2. Search input (Minimal, borderless, no icon)
     def on_search_change(e):
         nonlocal search_query
-        search_query = (e.control.value or "").strip().lower()
+        search_query = (e.control.value or "").strip()
         render_list()
         page.update()
 
@@ -48,7 +48,7 @@ def show_exercise_picker(
 
     # 3. Category pills row
     category_row = ft.Row(
-        scroll=ft.ScrollMode.HIDDEN,
+        scroll=ft.ScrollMode.AUTO,
         spacing=6,
         controls=[],
     )
@@ -84,10 +84,15 @@ def show_exercise_picker(
         category_row.controls = pills
 
     # 4. Exercise list column
-    list_column = ft.Column(spacing=6, scroll=ft.ScrollMode.ADAPTIVE)
+    list_column = ft.ListView(
+        spacing=8,
+        scroll=ft.ScrollMode.ADAPTIVE,
+        padding=ft.Padding(0, 8, 0, 12),
+    )
+    viewport_height = getattr(page, "height", None) or 700
     list_container = ft.Container(
         content=list_column,
-        height=350,
+        height=min(350, max(120, viewport_height * 0.4)),
         expand=False,
     )
 
@@ -100,45 +105,34 @@ def show_exercise_picker(
             on_success=lambda ex: on_select(ex) if on_select else None,
         )
 
+    is_choosing = False
+
     async def choose_exercise(ex: Exercise):
-        await state.select_exercise(ex.name)
-        page.pop_dialog()
-        if on_select:
-            on_select(ex)
-        page.update()
+        nonlocal is_choosing
+        if is_choosing:
+            return
+        is_choosing = True
+        try:
+            matched = next((item for item in state.exercises if item.name.strip().casefold() == ex.name.strip().casefold()), None)
+            if matched is None:
+                render_list()
+                page.update()
+                return
+            await state.select_exercise(matched.name)
+            page.pop_dialog()
+            if on_select:
+                on_select(matched)
+            page.update()
+        finally:
+            is_choosing = False
 
     def render_list():
-        # Defensive deduplication across all exercises
-        seen_names = set()
-        deduped_exercises: List[Exercise] = []
-        for ex in state.exercises:
-            clean = ex.name.strip().lower()
-            if clean and clean not in seen_names:
-                seen_names.add(clean)
-                deduped_exercises.append(ex)
-
-        # Filtering
-        filtered: List[Exercise] = []
-        for ex in deduped_exercises:
-            # Query match on name or category
-            if search_query:
-                if (
-                    search_query not in ex.name.lower()
-                    and search_query not in ex.category.lower()
-                ):
-                    continue
-
-            # Category filter
-            if selected_category == "Custom Only" and not ex.is_custom:
-                continue
-            if selected_category not in ("All", "Custom Only") and ex.category.lower() != selected_category.lower():
-                continue
-
-            filtered.append(ex)
+        filtered, total = filter_exercises(state.exercises, search_query, selected_category)
 
         is_filtering = bool(search_query or selected_category != "All")
-        count_badge.value = f"Showing {len(filtered)} of {len(deduped_exercises)} exercises"
+        count_badge.value = f"Showing {len(filtered)} of {total} exercises"
         count_badge.visible = is_filtering
+        list_column.key = f"picker:{search_query.casefold()}:{selected_category.casefold()}"
 
         cards: List[ft.Control] = []
         if not filtered:
@@ -152,26 +146,28 @@ def show_exercise_picker(
                         controls=[
                             ft.Icon(ft.Icons.SEARCH_OFF, size=36, color=ft.Colors.ON_SURFACE_VARIANT),
                             ft.Text(
-                                f"No exercises matching '{search_query}'" if search_query else "No exercises in this category",
+                                "No matching exercises" if search_query else "No exercises in this category",
                                 size=13,
                                 color=ft.Colors.ON_SURFACE_VARIANT,
                                 text_align=ft.TextAlign.CENTER,
                             ),
                             *(
+                                [ft.Text("Try another search or category.", size=12, color=ft.Colors.ON_SURFACE_VARIANT)]
+                                if search_query or selected_category != "All" else []
+                            ),
+                            *(
+                                [ft.TextButton("Show all categories", on_click=lambda _: select_category("All"))]
+                                if selected_category != "All" else []
+                            ),
+                            *(
                                 [
-                                    ft.Button(
-                                        content=ft.Row(
-                                            spacing=4,
-                                            alignment=ft.MainAxisAlignment.CENTER,
-                                            controls=[
-                                                ft.Icon(ft.Icons.ADD, size=16),
-                                                ft.Text(f"Add '{search_query.title()}' as Custom", weight=ft.FontWeight.BOLD, size=12),
-                                            ],
-                                        ),
-                                        on_click=lambda _: open_add_custom(search_query.title()),
+                                    ft.OutlinedButton(
+                                        "Add as custom exercise",
+                                        icon=ft.Icons.ADD,
+                                        on_click=lambda _: open_add_custom(search_query),
                                     )
                                 ]
-                                if search_query
+                                if search_query and selected_category == "All"
                                 else []
                             ),
                         ],
@@ -181,15 +177,11 @@ def show_exercise_picker(
             list_column.controls = cards
             return
 
-        current_name_clean = state.current_exercise.name.strip().lower()
+        current_name_clean = state.current_exercise.name.strip().casefold()
 
         for ex in filtered:
-            is_current = (ex.name.strip().lower() == current_name_clean)
-            if ex.default_weight == 0 or ex.category.lower() == "calisthenics":
-                target_str = f"{ex.category} • Default {ex.default_reps} reps"
-            else:
-                wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
-                target_str = f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}"
+            is_current = (ex.name.strip().casefold() == current_name_clean)
+            target_str = f"{ex.category} • {exercise_defaults(ex)}"
 
             card_border = (
                 ft.Border.all(1.5, ft.Colors.PRIMARY)
@@ -229,6 +221,8 @@ def show_exercise_picker(
                             target_str,
                             size=11,
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
                         ),
                     ],
                 )
@@ -251,6 +245,9 @@ def show_exercise_picker(
                     )
                 )
 
+            async def on_pick(_, target=ex):
+                await choose_exercise(target)
+
             item = ft.Container(
                 content=ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -269,7 +266,7 @@ def show_exercise_picker(
                 border_radius=10,
                 bgcolor=card_bgcolor,
                 ink=True,
-                on_click=lambda _, target=ex: asyncio.create_task(choose_exercise(target)),
+                on_click=on_pick,
             )
             cards.append(item)
 
@@ -328,6 +325,7 @@ def show_exercise_picker(
         ft.BottomSheet(
             content=sheet_content,
             show_drag_handle=True,
+            scrollable=True,
             maintain_bottom_view_insets_padding=True,
             shape=ft.RoundedRectangleBorder(
                 radius=ft.BorderRadius(top_left=24, top_right=24, bottom_left=0, bottom_right=0)

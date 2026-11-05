@@ -16,6 +16,7 @@ SnapRep is a modern Material 3 Android workout & rep-tracking application built 
 - **Workout Logbook & History**: Instant session review with today's total reps, sets logged, and total volume (kg).
 - **Analytics & PRs**: Breakdown of total reps per exercise and personal record (PR) tracking.
 - **Flet MCP Ready**: Configured with `flet-mcp` so AI coding agents can verify controls, search icons, and inspect Flet APIs in real time.
+- **Quick start guide**: A three-step guide appears on a fresh install and can be replayed from Settings.
 
 ---
 
@@ -63,19 +64,60 @@ Or run in full debug mode with the mobile Flutter engine:
 uv run flet debug android
 ```
 
-### Build Android Package (APK / AAB)
+### Build a signed Android APK
 
-Build a release or debug APK:
+Install a JDK, Flutter 3.44.8, and the Android SDK with build tools. Run
+`uv sync` first. On this development machine, the installed toolchain is at:
+
 ```bash
-uv run flet build apk
+export JAVA_HOME="$HOME/java/17.0.13+11"
+export ANDROID_HOME="$HOME/Android/sdk"
+export PATH="$JAVA_HOME/bin:$HOME/flutter/3.44.8/bin:$PATH"
+./scripts/build_android_release.sh
 ```
 
-Build an Android App Bundle (for Google Play / distribution):
+Replace the toolchain paths on another computer. The script reads the local
+`.secrets/android-upload.jks` and `.secrets/android-signing.env`, builds one APK
+per ABI in `build/apk/`, and verifies every APK with `apksigner` and `aapt`.
+It checks the signer against `scripts/android_upload_cert.sha256` and rejects
+unexpected permissions. The generated APKs are for `arm64-v8a`,
+`armeabi-v7a`, and `x86_64`; install the variant matching the device.
+
+On another computer, securely copy the existing upload keystore and password
+file into `.secrets/`. **Do not generate another key for the same release
+identity.** Back up both files securely and keep them out of source control.
+For a new app identity only, run `python3 scripts/create_android_upload_key.py`
+once, then update `scripts/android_upload_cert.sha256` with the printed
+fingerprint.
+
+### Build an Android App Bundle
+
+Use the same toolchain and local signing files, then build an AAB for Google
+Play in `build/aab/`:
+
 ```bash
-uv run flet build aab
+source .secrets/android-signing.env
+FLET_ANDROID_SIGNING_KEY_STORE="$PWD/.secrets/android-upload.jks" \
+FLET_ANDROID_SIGNING_KEY_ALIAS=snaprep \
+uv run flet build aab --python-version 3.13
 ```
 
-Android settings such as package name (`com.snaprep`), permissions (`INTERNET`, `VIBRATE`), and adaptive icon backgrounds are configured in [`pyproject.toml`](./pyproject.toml) under `[tool.flet.android]`.
+The old upload key was previously committed to Git and should be treated as
+compromised. Its local copy is preserved at `.secrets/legacy-snaprep-release.jks`.
+If this app already uses Play App Signing, request an **upload key reset** in
+Play Console and register `.secrets/android-upload-cert.pem` before uploading a
+bundle signed with the new key. A directly installed APK signed with the old
+key cannot be updated in place by one signed with the new key; uninstalling it
+will remove its local data unless you back up and restore it first.
+
+The Android application ID is `com.datlabs.snap_rep`. Packaged builds request
+only the normal platform `VIBRATE` permission for haptic feedback; Flet's default
+`INTERNET` permission and the connectivity plugin's `ACCESS_NETWORK_STATE`
+permission are removed. AndroidX also declares an internal receiver permission,
+which does not prompt the user. File import/export uses Android's system file
+picker, so SnapRep does not request storage, camera, or notification access.
+These settings are in [`pyproject.toml`](./pyproject.toml) under
+`[tool.flet.android]`.
 
 ---
 

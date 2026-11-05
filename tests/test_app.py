@@ -139,6 +139,38 @@ def test_theme_resolution():
     assert resolve_theme_mode("unknown") == ft.ThemeMode.SYSTEM
 
 
+def test_quick_tour_first_launch_and_replay(tmp_path):
+    from components.quick_tour import is_first_launch, show_quick_tour
+
+    storage = AppStorage(storage_dir=tmp_path)
+    assert is_first_launch(storage) is True
+    state = AppState(storage=storage)
+    assert is_first_launch(storage) is False
+
+    page = MockPage()
+    show_quick_tour(page, state)
+    assert isinstance(page.dialog, ft.AlertDialog)
+    assert page.dialog.scrollable is True
+    _, back, next_button = page.dialog.actions
+    assert back.visible is False
+    next_button.on_click(None)
+    assert back.visible is True
+    assert page.dialog.content.content.controls[0].value == "Set your target"
+    back.on_click(None)
+    assert page.dialog.content.content.controls[0].value == "Choose an exercise"
+    next_button.on_click(None)
+    next_button.on_click(None)
+    assert next_button.content == "Got it"
+    next_button.on_click(None)
+    assert page.dialog is None
+    assert storage.load_settings()["quick_tour_seen"] is True
+
+    show_quick_tour(page, state)
+    assert isinstance(page.dialog, ft.AlertDialog)
+    page.dialog.actions[0].on_click(None)
+    assert page.dialog is None
+
+
 @pytest.mark.asyncio
 async def test_app_state_rep_and_weight_clamping():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -458,6 +490,26 @@ async def test_main_mount():
 
 
 @pytest.mark.asyncio
+async def test_main_shows_quick_tour_only_on_new_install(monkeypatch, tmp_path):
+    import main as app_module
+
+    storage = AppStorage(storage_dir=tmp_path)
+    monkeypatch.setattr(app_module, "AppStorage", lambda: storage)
+    first_page = MockPage()
+    first_page.add = lambda control: first_page.controls.append(control)
+
+    await app_module.main(first_page)
+    assert isinstance(first_page.dialog, ft.AlertDialog)
+    first_page.dialog.actions[0].on_click(None)
+    assert storage.load_settings()["quick_tour_seen"] is True
+
+    second_page = MockPage()
+    second_page.add = lambda control: second_page.controls.append(control)
+    await app_module.main(second_page)
+    assert second_page.dialog is None
+
+
+@pytest.mark.asyncio
 async def test_dynamic_color_service_skipped_in_web_preview(monkeypatch):
     import main as app_module
 
@@ -706,6 +758,11 @@ def test_exercises_view_library_and_filtering():
         # Initially shows all default exercises
         assert len(view.exercise_list_column.controls) >= 10
         assert "Showing" in view.count_badge.value
+        assert all(
+            not row.selected
+            for row in view.exercise_list_column.controls
+            if isinstance(row, ft.ListTile)
+        )
 
         # Filter by category
         view._select_category("Chest")
@@ -730,9 +787,13 @@ def test_exercises_search_and_filters_stay_outside_results_scroll():
         assert layout.scroll is None
         assert search_row.controls == [view.search_field]
         assert category_row is view.category_row
-        assert count_row.controls[0] is view.count_badge
+        assert count_row.controls[0].content is view.count_badge
         assert results.expand is True
         assert results.content is view.exercise_list_column
+        assert isinstance(view.exercise_list_column, ft.ListView)
+        assert view.exercise_list_column.padding.bottom == 12
+        assert view.root.padding.bottom == 8
+        assert category_row.scroll == ft.ScrollMode.AUTO
         assert view.exercise_list_column.expand is True
         assert view.exercise_list_column.scroll == ft.ScrollMode.ADAPTIVE
         assert all(not isinstance(control, ft.Column) for control in layout.controls[:3])
@@ -1462,6 +1523,75 @@ def test_exercise_picker_dialog_search_and_category():
         custom_pill = next(p for p in category_row.controls if p.content.value == "Custom Only")
         custom_pill.on_click(None)
         assert len(list_column.controls) == 1
+
+
+def test_picker_sheet_fits_short_phone_and_keeps_results_scrollable():
+    from components.exercise_picker_dialog import show_exercise_picker
+
+    page = MockPage()
+    page.height = 300
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state = AppState(storage=AppStorage(storage_dir=Path(tmpdir)))
+        show_exercise_picker(page, state)
+
+        assert page.dialog.scrollable is True
+        column_controls = page.dialog.content.content.controls
+        assert column_controls[2].scroll == ft.ScrollMode.AUTO
+        results = column_controls[4]
+        assert results.height == 120
+        assert isinstance(results.content, ft.ListView)
+        assert results.content.padding.top == 8
+        assert results.content.padding.bottom == 12
+
+
+def test_exercise_filters_offer_a_way_back_to_all_categories():
+    from components.exercise_picker_dialog import show_exercise_picker
+    from views.exercises_view import ExercisesView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state = AppState(storage=AppStorage(storage_dir=Path(tmpdir)))
+
+        library = ExercisesView(page, state)
+        library._on_search_change(type("Event", (), {"control": type("Field", (), {"value": "push"})()})())
+        library._select_category("Chest")
+        empty_library = library.exercise_list_column.controls[0].content.controls
+        clear_library = next(control for control in empty_library if isinstance(control, ft.TextButton))
+        clear_library.on_click(None)
+        assert library._selected_category == "All"
+        assert any(isinstance(control, ft.ListTile) for control in library.exercise_list_column.controls)
+
+        show_exercise_picker(page, state)
+        controls = page.dialog.content.content.controls
+        search = controls[1].controls[0]
+        search.value = "push"
+        search.on_change(type("Event", (), {"control": search})())
+        chest = next(control for control in controls[2].controls if control.content.value == "Chest")
+        chest.on_click(None)
+        empty_picker = controls[4].content.controls[0].content.controls
+        clear_picker = next(control for control in empty_picker if isinstance(control, ft.TextButton))
+        clear_picker.on_click(None)
+        assert len(controls[4].content.controls) > 0
+        assert any(isinstance(control, ft.Container) and control.on_click for control in controls[4].content.controls)
+
+
+@pytest.mark.asyncio
+async def test_picker_ignores_exercise_removed_while_open():
+    from components.exercise_picker_dialog import show_exercise_picker
+
+    page = MockPage()
+    selected = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state = AppState(storage=AppStorage(storage_dir=Path(tmpdir)))
+        show_exercise_picker(page, state, on_select=selected.append)
+        first_card = page.dialog.content.content.controls[4].content.controls[0]
+        removed = state.exercises[0]
+        state.exercises = [ex for ex in state.exercises if ex.name != removed.name]
+
+        await first_card.on_click(None)
+
+        assert page.dialog is not None
+        assert selected == []
 
 
 @pytest.mark.asyncio

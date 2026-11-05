@@ -222,3 +222,5 @@ __marimo__/
 .flet
 .vscode
 .cursor
+snaprep-release.jks
+.secrets/

@@ -10,3 +10,4 @@ dependencies:
     sdk: flutter
   flet: ^1.0.5
   dynamic_color: ^2.1.0
+  material_ui: ^1.2.0

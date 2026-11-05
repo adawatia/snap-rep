@@ -38,24 +38,25 @@ class ExercisesView:
 
         # Category filter row
         self.category_row = ft.Row(
-            scroll=ft.ScrollMode.HIDDEN,
+            scroll=ft.ScrollMode.AUTO,
             spacing=6,
             controls=[],
         )
 
         # Exercise count stays visible while only the results list scrolls.
         self.count_badge = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-        self.exercise_list_column = ft.Column(
+        self.exercise_list_column = ft.ListView(
             spacing=0,
             scroll=ft.ScrollMode.ADAPTIVE,
             expand=True,
+            padding=ft.Padding(0, 8, 0, 12),
         )
 
         self.root = self._build_layout()
         self.update_ui()
 
     def _on_search_change(self, e) -> None:
-        self._filter_query = (e.control.value or "").strip().lower()
+        self._filter_query = (e.control.value or "").strip()
         self._render_exercises()
         self.page.update()
 
@@ -195,13 +196,14 @@ class ExercisesView:
             self.state.exercises, self._filter_query, self._selected_category
         )
         self.count_badge.value = f"Showing {len(filtered)} of {total} exercises"
+        self.exercise_list_column.key = f"library:{self._filter_query.casefold()}:{self._selected_category.casefold()}"
 
         if not filtered:
-            searched_name = self._filter_query.strip().title()
+            has_search = bool(self._filter_query)
             controls = [
                 ft.Icon(ft.Icons.SEARCH_OFF, size=32, color=ft.Colors.ON_SURFACE_VARIANT),
                 ft.Text(
-                    "No matching exercises" if searched_name else "No exercises in this category",
+                    "No matching exercises" if has_search else "No exercises in this category",
                     size=15,
                     weight=ft.FontWeight.W_600,
                 ),
@@ -211,12 +213,19 @@ class ExercisesView:
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
             ]
-            if searched_name:
+            if self._selected_category != "All":
+                controls.append(
+                    ft.TextButton(
+                        "Show all categories",
+                        on_click=lambda _: self._select_category("All"),
+                    )
+                )
+            if has_search and self._selected_category == "All":
                 controls.append(
                     ft.OutlinedButton(
-                        f"Add {searched_name}",
+                        "Add as custom exercise",
                         icon=ft.Icons.ADD,
-                        on_click=lambda _: self._open_add_dialog(initial_name=searched_name),
+                        on_click=lambda _: self._open_add_dialog(initial_name=self._filter_query),
                     )
                 )
             self.exercise_list_column.controls = [
@@ -233,7 +242,6 @@ class ExercisesView:
             return
 
         rows: list[ft.Control] = []
-        current_name = self.state.current_exercise.name.strip().casefold()
         for exercise in filtered:
             meta = f"{exercise.category} · {exercise_defaults(exercise)}"
             if exercise.is_custom:
@@ -259,8 +267,6 @@ class ExercisesView:
                         size=20,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                    selected=exercise.name.strip().casefold() == current_name,
-                    selected_tile_color=ft.Colors.PRIMARY_CONTAINER,
                     min_height=64,
                     content_padding=ft.Padding(12, 6, 12, 6),
                     on_click=lambda _, target=exercise: self._open_details(target),
@@ -275,7 +281,7 @@ class ExercisesView:
 
     def _build_layout(self) -> ft.Container:
         return ft.Container(
-            padding=ft.Padding(16, 16, 16, 0),
+            padding=ft.Padding(16, 16, 16, 8),
             expand=True,
             content=ft.Column(
                 expand=True,
@@ -288,7 +294,7 @@ class ExercisesView:
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            self.count_badge,
+                            ft.Container(self.count_badge, expand=True),
                             ft.IconButton(
                                 icon=ft.Icons.ADD,
                                 icon_color=ft.Colors.ON_PRIMARY,

@@ -11,6 +11,7 @@ except ImportError:  # Local web previews can run before the native extension is
     SnaprepDynamicColor = None
 
 from config import APP_TITLE
+from components.quick_tour import is_first_launch, show_quick_tour
 from state import AppState
 from storage import AppStorage
 from theme import get_palette_themes, resolve_theme_mode
@@ -29,6 +30,7 @@ async def main(page: ft.Page):
 
     # Initialize State
     storage = AppStorage()
+    first_launch = is_first_launch(storage)
     state = AppState(storage=storage)
     state.haptic = haptic
     state.clipboard = clipboard
@@ -165,6 +167,8 @@ async def main(page: ft.Page):
     )
     if dynamic_color and hasattr(page, "run_task"):
         page.run_task(refresh_dynamic_color)
+    if first_launch and not state.settings.get("quick_tour_seen", False):
+        show_quick_tour(page, state)
 
 
 # App entry point - container refresh update

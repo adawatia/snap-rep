@@ -11,6 +11,7 @@ from components.backup_dialog import show_backup_dialog
 from components.confirm_dialog import show_confirm_dialog
 from components.export_dialog import show_export_dialog
 from components.restore_dialog import show_restore_dialog
+from components.quick_tour import show_quick_tour
 from config import APP_SUBTITLE, APP_TITLE, APP_VERSION, REST_TIMER_OPTIONS
 from state import AppState
 from theme import PALETTES, get_palette_themes, resolve_theme_mode
@@ -222,6 +223,14 @@ class SettingsView:
                                 ]),
                                 self.haptic_switch,
                             ],
+                        ),
+                    ]),
+                    section("Getting started", [
+                        action_tile(
+                            ft.Icons.HELP_OUTLINE,
+                            "Quick start guide",
+                            "Review how to track a set and find your data",
+                            lambda _: show_quick_tour(self.page, self.state),
                         ),
                     ]),
                     ft.Column(spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH, controls=[
