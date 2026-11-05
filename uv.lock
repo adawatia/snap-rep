@@ -3476,6 +3476,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "flet" },
+    { name = "snaprep-dynamic-color" },
 ]
 
 [package.dev-dependencies]
@@ -3490,7 +3491,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flet", specifier = ">=1.0.5" }]
+requires-dist = [
+    { name = "flet", specifier = ">=1.0.5" },
+    { name = "snaprep-dynamic-color", specifier = "==0.1.0", source = { directory = "extensions/snaprep_dynamic_color" } },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3502,6 +3506,17 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.0" },
 ]
+
+[[package]]
+name = "snaprep-dynamic-color"
+version = "0.1.0"
+source = { directory = "extensions/snaprep_dynamic_color" }
+dependencies = [
+    { name = "flet" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "flet", specifier = ">=1.0.5" }]
 
 [[package]]
 name = "sse-starlette"

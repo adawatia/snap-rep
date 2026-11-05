@@ -403,16 +403,25 @@ async def test_settings_view_preferences():
         settings_view = SettingsView(page, state)
 
         appearance = settings_view.root.content.controls[0]
-        theme_row = appearance.controls[1].content.controls[1]
+        palette_row = appearance.controls[1].content.controls[1]
+        theme_row = appearance.controls[1].content.controls[3]
         workout = settings_view.root.content.controls[1]
         rest_row = workout.controls[1].content.controls[0]
+        assert palette_row.controls == [settings_view.palette_dropdown]
         assert theme_row.controls == [settings_view.theme_dropdown]
         assert rest_row.controls == [settings_view.rest_timer_dropdown]
+        assert settings_view.palette_dropdown.expand is True
         assert settings_view.theme_dropdown.expand is True
         assert settings_view.rest_timer_dropdown.expand is True
 
         # Default is light theme
         assert settings_view.theme_dropdown.value == "light"
+        assert settings_view.palette_dropdown.value == "coral"
+
+        settings_view.palette_dropdown.value = "gruvbox"
+        await settings_view._on_palette_select(None)
+        assert state.settings["theme_palette"] == "gruvbox"
+        assert storage.load_settings()["theme_palette"] == "gruvbox"
 
         # Check theme change to dark
         settings_view.theme_dropdown.value = "dark"
@@ -446,6 +455,57 @@ async def test_main_mount():
     assert page.appbar is not None
     assert page.navigation_bar.selected_index == 0
     assert len(page.navigation_bar.destinations) == 5
+
+
+@pytest.mark.asyncio
+async def test_dynamic_color_service_skipped_in_web_preview(monkeypatch):
+    import main as app_module
+
+    class NativeColor:
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(app_module, "SnaprepDynamicColor", NativeColor)
+    page = MockPage()
+    page.web = True
+    page.platform = ft.PagePlatform.ANDROID
+    page.add = lambda ctrl: page.controls.append(ctrl)
+
+    await app_module.main(page)
+
+    assert not any(isinstance(service, NativeColor) for service in page.services)
+
+
+@pytest.mark.asyncio
+async def test_missing_native_color_listener_falls_back_once(monkeypatch):
+    import main as app_module
+
+    class NativeColor:
+        calls = 0
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def refresh(self):
+            self.calls += 1
+            raise RuntimeError("Timeout waiting for invoke method listener")
+
+    monkeypatch.setattr(app_module, "SnaprepDynamicColor", NativeColor)
+    page = MockPage()
+    page.web = False
+    page.platform = ft.PagePlatform.ANDROID
+    page.add = lambda ctrl: page.controls.append(ctrl)
+    tasks = []
+    page.run_task = lambda handler: tasks.append(handler)
+
+    await app_module.main(page)
+    assert len(tasks) == 1
+    await tasks[0]()
+    await page.on_app_lifecycle_state_change(
+        type("Event", (), {"state": ft.AppLifecycleState.RESUME})()
+    )
+    native_color = next(service for service in page.services if isinstance(service, NativeColor))
+    assert native_color.calls == 1
 
 
 def test_tracker_view_weight_and_input():

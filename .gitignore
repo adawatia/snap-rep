@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!extensions/snaprep_dynamic_color/src/flutter/snaprep_dynamic_color/lib/
 lib64/
 parts/
 sdist/

@@ -1,0 +1,12 @@
+name: snaprep_dynamic_color
+description: Android wallpaper colors for SnapRep
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.24.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flet: ^1.0.5
+  dynamic_color: ^2.1.0

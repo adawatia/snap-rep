@@ -4,6 +4,7 @@ Streamlined and decluttered with the dedicated Exercises tab.
 """
 
 import asyncio
+from typing import Callable
 import flet as ft
 
 from components.backup_dialog import show_backup_dialog
@@ -12,19 +13,20 @@ from components.export_dialog import show_export_dialog
 from components.restore_dialog import show_restore_dialog
 from config import APP_SUBTITLE, APP_TITLE, APP_VERSION, REST_TIMER_OPTIONS
 from state import AppState
-from theme import resolve_theme_mode
+from theme import PALETTES, get_palette_themes, resolve_theme_mode
 
 
 class SettingsView:
-    def __init__(self, page: ft.Page, state: AppState):
+    def __init__(self, page: ft.Page, state: AppState, dynamic_schemes: Callable[[], dict | None] | None = None):
         self.page = page
         self.state = state
+        self.dynamic_schemes = dynamic_schemes or (lambda: None)
 
         # 1. Appearance / Theme
-        self.theme_dropdown = ft.Dropdown(
-            label="Color theme",
+        self.palette_dropdown = ft.Dropdown(
+            label="Color palette",
             label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
-            value=self.state.settings.get("theme_mode", "light"),
+            value=self.state.settings.get("theme_palette", "coral"),
             border={
                 ft.ControlState.DEFAULT: ft.OutlineInputBorder(
                     border_radius=12,
@@ -41,13 +43,28 @@ class SettingsView:
             dense=True,
             menu_height=220,
             expand=True,
+            options=[ft.DropdownOption(key, name) for key, name in PALETTES.items()],
+            on_select=self._on_palette_select,
+        )
+        self.theme_dropdown = ft.Dropdown(
+            label="Appearance",
+            label_style=ft.TextStyle(size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+            value=self.state.settings.get("theme_mode", "light"),
+            border=ft.OutlineInputBorder(border_radius=12),
+            filled=True,
+            fill_color=ft.Colors.SURFACE_CONTAINER,
+            content_padding=ft.Padding(14, 10, 14, 10),
+            dense=True,
+            menu_height=220,
+            expand=True,
             options=[
-                ft.DropdownOption("light", "Light · Coral and cream"),
-                ft.DropdownOption("dark", "Dark · Coral and navy"),
-                ft.DropdownOption("system", "Use device setting"),
+                ft.DropdownOption("light", "Light"),
+                ft.DropdownOption("dark", "Dark"),
+                ft.DropdownOption("system", "Follow device"),
             ],
             on_select=self._on_theme_select,
         )
+        self.palette_preview = ft.Row(spacing=7)
 
         # 2. Rest Timer Preference
         default_rest_val = str(self.state.settings.get("default_rest_timer", 60))
@@ -93,6 +110,22 @@ class SettingsView:
         self.page.theme_mode = resolve_theme_mode(val)
         self.page.update()
 
+    async def _on_palette_select(self, e) -> None:
+        palette = self.palette_dropdown.value or "coral"
+        self.state.update_setting("theme_palette", palette)
+        self._update_palette_preview()
+        self.page.update()
+
+    def _update_palette_preview(self) -> None:
+        light, dark = get_palette_themes(
+            self.state.settings.get("theme_palette", "coral"), self.dynamic_schemes()
+        )
+        colors = light.color_scheme
+        self.palette_preview.controls = [
+            ft.Container(width=18, height=18, border_radius=9, bgcolor=color)
+            for color in (colors.primary, colors.secondary, colors.tertiary, dark.color_scheme.surface)
+        ]
+
     async def _on_rest_timer_select(self, e) -> None:
         try:
             val = int(self.rest_timer_dropdown.value or 60)
@@ -121,7 +154,9 @@ class SettingsView:
         )
 
     def update_ui(self) -> None:
+        self.palette_dropdown.value = self.state.settings.get("theme_palette", "coral")
         self.theme_dropdown.value = self.state.settings.get("theme_mode", "light")
+        self._update_palette_preview()
         self.rest_timer_dropdown.value = str(self.state.settings.get("default_rest_timer", 60))
         self.haptic_switch.value = self.state.settings.get("haptic_feedback", True)
 
@@ -170,6 +205,8 @@ class SettingsView:
                 controls=[
                     section("Appearance", [
                         ft.Text("Choose how SnapRep looks on this device.", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Row(controls=[self.palette_dropdown]),
+                        self.palette_preview,
                         ft.Row(controls=[self.theme_dropdown]),
                     ]),
                     section("Workout", [

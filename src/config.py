@@ -40,6 +40,7 @@ EXERCISE_CATEGORIES = [
 
 DEFAULT_SETTINGS = {
     "haptic_feedback": True,
+    "theme_palette": "coral",
     "theme_mode": "light",
     "unit": "kg",
     "default_rest_timer": 60,

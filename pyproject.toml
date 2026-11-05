@@ -9,6 +9,7 @@ authors = [
 ]
 dependencies = [
     "flet>=1.0.5",
+    "snaprep-dynamic-color==0.1.0",
 ]
 
 [dependency-groups]
@@ -25,6 +26,9 @@ dev = [
 [tool.uv]
 package = false
 
+[tool.uv.sources]
+snaprep-dynamic-color = { path = "extensions/snaprep_dynamic_color" }
+
 [tool.flet]
 org = "com.datlabs"
 product = "SnapRep"
@@ -33,6 +37,9 @@ copyright = "Copyright (C) 2026 Datlabs"
 
 [tool.flet.app]
 path = "src"
+
+[tool.flet.dev_packages]
+snaprep-dynamic-color = "extensions/snaprep_dynamic_color"
 
 [tool.flet.android]
 split_per_abi = true
