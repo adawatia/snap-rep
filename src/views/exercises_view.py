@@ -2,13 +2,12 @@
 add custom exercises, and edit exercise defaults.
 """
 
-import asyncio
-from typing import Optional
 import flet as ft
 
 from components.add_exercise_dialog import show_add_exercise_dialog
 from components.confirm_dialog import show_confirm_dialog
 from components.edit_exercise_dialog import show_edit_exercise_dialog
+from components.exercise_browse import exercise_defaults, filter_exercises
 from config import EXERCISE_CATEGORIES
 from models import Exercise
 from state import AppState
@@ -23,7 +22,8 @@ class ExercisesView:
 
         # Search field (Minimal, borderless)
         self.search_field = ft.TextField(
-            hint_text="Search exercise name or category...",
+            hint_text="Search exercises",
+            prefix_icon=ft.Icons.SEARCH,
             border=ft.OutlineInputBorder(
                 border_radius=12,
                 side=ft.BorderSide(color=ft.Colors.TRANSPARENT),
@@ -43,9 +43,13 @@ class ExercisesView:
             controls=[],
         )
 
-        # Exercises count badge & list column
+        # Exercise count stays visible while only the results list scrolls.
         self.count_badge = ft.Text("", size=12, color=ft.Colors.ON_SURFACE_VARIANT)
-        self.exercise_list_column = ft.Column(spacing=8)
+        self.exercise_list_column = ft.Column(
+            spacing=0,
+            scroll=ft.ScrollMode.ADAPTIVE,
+            expand=True,
+        )
 
         self.root = self._build_layout()
         self.update_ui()
@@ -61,10 +65,11 @@ class ExercisesView:
         self._render_exercises()
         self.page.update()
 
-    def _open_add_dialog(self, e) -> None:
+    def _open_add_dialog(self, e=None, initial_name: str = "") -> None:
         show_add_exercise_dialog(
             self.page,
             self.state,
+            initial_name=initial_name,
             on_success=lambda _: self.update_ui(),
         )
 
@@ -74,6 +79,76 @@ class ExercisesView:
             self.state,
             exercise,
             on_success=lambda _: self.update_ui(),
+        )
+
+    def _open_details(self, exercise: Exercise) -> None:
+        def edit(_):
+            self.page.pop_dialog()
+            self._open_edit_dialog(exercise)
+
+        def delete(_):
+            self.page.pop_dialog()
+            self._confirm_delete_exercise(exercise.name)
+
+        actions = [
+            ft.FilledButton("Edit defaults", icon=ft.Icons.EDIT_OUTLINED, on_click=edit),
+        ]
+        if exercise.is_custom:
+            actions.append(
+                ft.TextButton(
+                    "Delete exercise",
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    style=ft.ButtonStyle(color=ft.Colors.ERROR),
+                    on_click=delete,
+                )
+            )
+
+        details = ft.Container(
+            padding=ft.Padding(20, 8, 20, 24),
+            content=ft.Column(
+                tight=True,
+                spacing=16,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Text("Exercise details", size=18, weight=ft.FontWeight.BOLD),
+                            ft.IconButton(icon=ft.Icons.CLOSE, tooltip="Close details", on_click=lambda _: self.page.pop_dialog()),
+                        ],
+                    ),
+                    ft.Text(exercise.name, size=22, weight=ft.FontWeight.BOLD),
+                    ft.Text(
+                        f"{exercise.category} · {'Custom exercise' if exercise.is_custom else 'Built-in exercise'}",
+                        size=13,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    ft.Container(
+                        padding=16,
+                        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+                        border_radius=12,
+                        content=ft.Column(
+                            spacing=4,
+                            controls=[
+                                ft.Text("DEFAULT TARGET", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.ON_SURFACE_VARIANT),
+                                ft.Text(exercise_defaults(exercise), size=18, weight=ft.FontWeight.W_600),
+                            ],
+                        ),
+                    ),
+                    *actions,
+                ],
+            ),
+        )
+        self.page.show_dialog(
+            ft.BottomSheet(
+                content=details,
+                show_drag_handle=True,
+                scrollable=True,
+                maintain_bottom_view_insets_padding=True,
+                shape=ft.RoundedRectangleBorder(
+                    radius=ft.BorderRadius(top_left=24, top_right=24, bottom_left=0, bottom_right=0)
+                ),
+            )
         )
 
     def _confirm_delete_exercise(self, name: str) -> None:
@@ -116,164 +191,83 @@ class ExercisesView:
         self.category_row.controls = pills
 
     def _render_exercises(self) -> None:
-        query = self._filter_query
-        cat = self._selected_category
+        filtered, total = filter_exercises(
+            self.state.exercises, self._filter_query, self._selected_category
+        )
+        self.count_badge.value = f"Showing {len(filtered)} of {total} exercises"
 
-        # Defensive deduplication across all exercises
-        seen_names = set()
-        deduped_exercises: list[Exercise] = []
-        for ex in self.state.exercises:
-            clean = ex.name.strip().lower()
-            if clean and clean not in seen_names:
-                seen_names.add(clean)
-                deduped_exercises.append(ex)
-
-        filtered = []
-        for ex in deduped_exercises:
-            # Query match
-            if query and query not in ex.name.lower() and query not in ex.category.lower():
-                continue
-            # Category match
-            if cat == "Custom Only" and not ex.is_custom:
-                continue
-            if cat not in ("All", "Custom Only") and ex.category.lower() != cat.lower():
-                continue
-            filtered.append(ex)
-
-        self.count_badge.value = f"Showing {len(filtered)} of {len(deduped_exercises)} exercises"
-
-        cards: list[ft.Control] = []
         if not filtered:
-            controls_list = [
-                ft.Icon(ft.Icons.SEARCH_OFF, size=36, color=ft.Colors.ON_SURFACE_VARIANT),
-                ft.Text("No exercises match your search.", size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+            searched_name = self._filter_query.strip().title()
+            controls = [
+                ft.Icon(ft.Icons.SEARCH_OFF, size=32, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Text(
+                    "No matching exercises" if searched_name else "No exercises in this category",
+                    size=15,
+                    weight=ft.FontWeight.W_600,
+                ),
+                ft.Text(
+                    "Try another search or category.",
+                    size=12,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
             ]
-            if query:
-                controls_list.append(
-                    ft.Button(
-                        content=ft.Row(
-                            spacing=4,
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            controls=[
-                                ft.Icon(ft.Icons.ADD, size=16),
-                                ft.Text(f"Add '{query.title()}' as Custom", weight=ft.FontWeight.BOLD, size=12),
-                            ],
-                        ),
-                        on_click=lambda _: show_add_exercise_dialog(
-                            self.page,
-                            self.state,
-                            initial_name=query.title(),
-                            on_success=lambda _: self.update_ui(),
-                        ),
+            if searched_name:
+                controls.append(
+                    ft.OutlinedButton(
+                        f"Add {searched_name}",
+                        icon=ft.Icons.ADD,
+                        on_click=lambda _: self._open_add_dialog(initial_name=searched_name),
                     )
                 )
-
-            cards.append(
+            self.exercise_list_column.controls = [
                 ft.Container(
-                    padding=32,
+                    padding=ft.Padding(24, 36, 24, 36),
                     alignment=ft.Alignment.CENTER,
                     content=ft.Column(
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=8,
-                        controls=controls_list,
+                        spacing=10,
+                        controls=controls,
                     ),
-                )
-            )
-            self.exercise_list_column.controls = cards
-            return
-
-        for ex in filtered:
-            if ex.default_weight == 0 or ex.category.lower() == "calisthenics":
-                target_str = f"{ex.category} • Default {ex.default_reps} reps"
-            else:
-                wt_str = f"{int(ex.default_weight) if ex.default_weight.is_integer() else ex.default_weight} kg"
-                target_str = f"{ex.category} • Default {ex.default_reps} reps @ {wt_str}"
-
-            row_actions = [
-                ft.IconButton(
-                    icon=ft.Icons.EDIT_OUTLINED,
-                    icon_size=18,
-                    icon_color=ft.Colors.PRIMARY,
-                    tooltip=f"Edit defaults for {ex.name}",
-                    on_click=lambda _, target=ex: self._open_edit_dialog(target),
                 )
             ]
+            return
 
-            if ex.is_custom:
-                row_actions.append(
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE,
-                        icon_size=18,
-                        icon_color=ft.Colors.ERROR,
-                        tooltip="Delete custom exercise",
-                        on_click=lambda _, name=ex.name: self._confirm_delete_exercise(name),
-                    )
-                )
-
-            item_card = ft.Card(
-                content=ft.Container(
-                    padding=ft.Padding(14, 10, 14, 10),
-                    ink=True,
-                    content=ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        controls=[
-                            # Left: Title & Subtitle (no redundant dumbbell icon, full width)
-                            ft.Column(
-                                spacing=2,
-                                expand=True,
-                                controls=[
-                                    ft.Row(
-                                        spacing=6,
-                                        controls=[
-                                            ft.Container(
-                                                content=ft.Text(
-                                                    ex.name,
-                                                    weight=ft.FontWeight.BOLD,
-                                                    size=14,
-                                                    max_lines=1,
-                                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                                ),
-                                                expand=True,
-                                            ),
-                                            *(
-                                                [
-                                                    ft.Container(
-                                                        content=ft.Text(
-                                                            "Custom",
-                                                            size=9,
-                                                            weight=ft.FontWeight.BOLD,
-                                                            color=ft.Colors.PRIMARY,
-                                                        ),
-                                                        padding=ft.Padding(5, 2, 5, 2),
-                                                        border=ft.Border.all(1, ft.Colors.PRIMARY),
-                                                        border_radius=6,
-                                                    )
-                                                ]
-                                                if ex.is_custom
-                                                else []
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Text(
-                                        target_str,
-                                        size=12,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                    ),
-                                ],
-                            ),
-                            # Right: Edit / Delete action buttons
-                            ft.Row(
-                                spacing=2,
-                                controls=row_actions,
-                            ),
-                        ],
+        rows: list[ft.Control] = []
+        current_name = self.state.current_exercise.name.strip().casefold()
+        for exercise in filtered:
+            meta = f"{exercise.category} · {exercise_defaults(exercise)}"
+            if exercise.is_custom:
+                meta += " · Custom"
+            rows.append(
+                ft.ListTile(
+                    title=ft.Text(
+                        exercise.name,
+                        size=14,
+                        weight=ft.FontWeight.W_600,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
                     ),
-                ),
+                    subtitle=ft.Text(
+                        meta,
+                        size=12,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    trailing=ft.Icon(
+                        ft.Icons.CHEVRON_RIGHT,
+                        size=20,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    selected=exercise.name.strip().casefold() == current_name,
+                    selected_tile_color=ft.Colors.PRIMARY_CONTAINER,
+                    min_height=64,
+                    content_padding=ft.Padding(12, 6, 12, 6),
+                    on_click=lambda _, target=exercise: self._open_details(target),
+                )
             )
-            cards.append(item_card)
-
-        self.exercise_list_column.controls = cards
+            rows.append(ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT))
+        self.exercise_list_column.controls = rows[:-1]
 
     def update_ui(self) -> None:
         self._render_category_pills()
@@ -281,41 +275,36 @@ class ExercisesView:
 
     def _build_layout(self) -> ft.Container:
         return ft.Container(
-            padding=14,
+            padding=ft.Padding(16, 16, 16, 0),
             expand=True,
             content=ft.Column(
-                scroll=ft.ScrollMode.ADAPTIVE,
-                spacing=8,
+                expand=True,
+                spacing=10,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 controls=[
-                    # Header: Title + Add Button
+                    ft.Row(controls=[self.search_field]),
+                    self.category_row,
                     ft.Row(
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Text("Exercise Library", size=18, weight=ft.FontWeight.BOLD),
-                            ft.Button(
-                                content=ft.Row(
-                                    spacing=4,
-                                    controls=[
-                                        ft.Icon(ft.Icons.ADD, size=16),
-                                        ft.Text("Add Exercise", size=12, weight=ft.FontWeight.BOLD),
-                                    ],
-                                ),
+                            self.count_badge,
+                            ft.IconButton(
+                                icon=ft.Icons.ADD,
+                                icon_color=ft.Colors.ON_PRIMARY,
+                                bgcolor=ft.Colors.PRIMARY,
+                                tooltip="Add exercise",
                                 on_click=self._open_add_dialog,
                             ),
                         ],
                     ),
-
-                    # Search Bar
-                    ft.Row(controls=[self.search_field]),
-
-                    # Category Filter Pills
-                    self.category_row,
-
-                    # Count info
-                    self.count_badge,
-
-                    # Exercise List
-                    self.exercise_list_column,
+                    ft.Container(
+                        expand=True,
+                        bgcolor=ft.Colors.SURFACE_CONTAINER,
+                        border_radius=14,
+                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                        content=self.exercise_list_column,
+                    ),
                 ],
             ),
         )

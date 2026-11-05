@@ -719,6 +719,54 @@ def test_exercises_view_library_and_filtering():
         assert len(view.exercise_list_column.controls) == 1
 
 
+def test_exercises_search_and_filters_stay_outside_results_scroll():
+    from views.exercises_view import ExercisesView
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        view = ExercisesView(MockPage(), AppState(storage=AppStorage(storage_dir=Path(tmpdir))))
+        layout = view.root.content
+        search_row, category_row, count_row, results = layout.controls
+
+        assert layout.scroll is None
+        assert search_row.controls == [view.search_field]
+        assert category_row is view.category_row
+        assert count_row.controls[0] is view.count_badge
+        assert results.expand is True
+        assert results.content is view.exercise_list_column
+        assert view.exercise_list_column.expand is True
+        assert view.exercise_list_column.scroll == ft.ScrollMode.ADAPTIVE
+        assert all(not isinstance(control, ft.Column) for control in layout.controls[:3])
+
+
+def test_exercise_library_row_opens_details_and_actions():
+    from views.exercises_view import ExercisesView
+
+    page = MockPage()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = AppStorage(storage_dir=Path(tmpdir))
+        state = AppState(storage=storage)
+        view = ExercisesView(page, state)
+
+        builtin_row = next(control for control in view.exercise_list_column.controls if isinstance(control, ft.ListTile))
+        builtin_row.on_click(None)
+        assert isinstance(page.dialog, ft.BottomSheet)
+        builtin_actions = page.dialog.content.content.controls
+        assert any(isinstance(control, ft.FilledButton) for control in builtin_actions)
+        assert not any(isinstance(control, ft.TextButton) for control in builtin_actions)
+        next(control for control in builtin_actions if isinstance(control, ft.FilledButton)).on_click(None)
+        assert isinstance(page.dialog, ft.AlertDialog)
+
+        custom = Exercise("Floor press", "Chest", 8, 20.0, is_custom=True)
+        state.exercises.insert(0, custom)
+        view.update_ui()
+        custom_row = next(control for control in view.exercise_list_column.controls if isinstance(control, ft.ListTile))
+        custom_row.on_click(None)
+        custom_actions = page.dialog.content.content.controls
+        assert any(isinstance(control, ft.TextButton) and control.content == "Delete exercise" for control in custom_actions)
+        next(control for control in custom_actions if isinstance(control, ft.TextButton)).on_click(None)
+        assert isinstance(page.dialog, ft.AlertDialog)
+
+
 def test_history_view_no_duplicate_sets_on_repeated_renders():
     from views.history_view import HistoryView
     from datetime import date
@@ -1612,18 +1660,10 @@ def test_exercises_view_no_repetitive_dumbbell_icons():
         state = AppState(storage=storage)
         view = ExercisesView(page, state)
 
-        # Exercise cards must not have dumbbell icon clutter
-        for card in view.exercise_list_column.controls:
-            container = card.content
-            assert container.ink is True
-            # Traverse children and ensure no FITNESS_CENTER icon
-            def check_no_dumbbell(ctrl):
-                if isinstance(ctrl, ft.Icon):
-                    assert ctrl.icon != ft.Icons.FITNESS_CENTER
-                if hasattr(ctrl, "controls") and ctrl.controls:
-                    for child in ctrl.controls:
-                        check_no_dumbbell(child)
-                if hasattr(ctrl, "content") and ctrl.content:
-                    check_no_dumbbell(ctrl.content)
-
-            check_no_dumbbell(card)
+        # Each result is one tappable row; no repeated exercise icon is needed.
+        rows = [control for control in view.exercise_list_column.controls if isinstance(control, ft.ListTile)]
+        assert rows
+        for row in rows:
+            assert row.on_click is not None
+            assert row.leading is None
+            assert row.trailing.icon == ft.Icons.CHEVRON_RIGHT
