@@ -135,7 +135,7 @@ def show_add_exercise_dialog(
         ft.AlertDialog(
             title=ft.Text("Add Custom Exercise", weight=ft.FontWeight.BOLD),
             content=ft.Container(
-                width=320,
+                width=min(340, max(120, (getattr(page, "width", None) or 390) - 80)),
                 content=ft.Column(
                     spacing=12,
                     tight=True,
@@ -158,5 +158,7 @@ def show_add_exercise_dialog(
                 ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
                 save_button,
             ],
+            scrollable=True,
+            inset_padding=ft.Padding(16, 16, 16, 16),
         )
     )

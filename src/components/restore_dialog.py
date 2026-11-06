@@ -8,6 +8,7 @@ from state import AppState
 
 
 async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
+    # Retain access to backups made by older app versions, without creating new private copies.
     local_backups = state.storage.get_local_backups()
 
     async def proceed_with_backup_content(raw_data: Any, source_name: str) -> None:
@@ -32,12 +33,19 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
 
         # Extract counts for preview
         if isinstance(parsed, dict):
-            sets_count = len(parsed.get("history", []))
-            exercises_count = len(parsed.get("exercises", []))
-            created_at = parsed.get("created_at", "Unknown date")
+            sections = {key: parsed.get(key, []) for key in ("history", "exercises", "weight_history")}
+            if any(not isinstance(items, list) for items in sections.values()):
+                page.show_dialog(ft.SnackBar(content=ft.Text("Invalid backup sections."), show_close_icon=True))
+                page.update()
+                return
+            sets_count = len(sections["history"])
+            exercises_count = len(sections["exercises"])
+            weight_count = len(sections["weight_history"])
+            created_at = str(parsed.get("created_at", "Unknown date"))
         elif isinstance(parsed, list):
             sets_count = len(parsed)
             exercises_count = 0
+            weight_count = 0
             created_at = "Raw history list"
         else:
             page.show_dialog(
@@ -49,10 +57,10 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
             page.update()
             return
 
-        if sets_count == 0 and exercises_count == 0:
+        if sets_count == 0 and exercises_count == 0 and weight_count == 0:
             page.show_dialog(
                 ft.SnackBar(
-                    content=ft.Text("No valid workout sets or exercises found in backup."),
+                    content=ft.Text("No workout sets, exercises, or weigh-ins found in backup."),
                     show_close_icon=True,
                 )
             )
@@ -69,12 +77,16 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
                 controls=[
                     ft.Radio(
                         value="merge",
-                        label="Merge with Current Data (Recommended - skips duplicates)",
+                        label="Merge",
                     ),
+                    ft.Text("Add records not already on this device.", size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT),
                     ft.Radio(
                         value="replace",
-                        label="Replace All Data (Overwrites current history & exercises)",
+                        label="Replace",
                     ),
+                    ft.Text("Overwrite sections present in this backup.", size=11,
+                            color=ft.Colors.ON_SURFACE_VARIANT),
                 ],
             ),
             value="merge",
@@ -88,7 +100,7 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
 
         def on_mode_change(e):
             if restore_mode_radio.value == "replace":
-                warning_text.value = "Warning: Replace mode will permanently overwrite your current workouts!"
+                warning_text.value = "Replace overwrites only sections included in this backup."
                 warning_text.color = ft.Colors.ERROR
             else:
                 warning_text.value = "Merge mode safely combines records without deleting your current history."
@@ -104,7 +116,7 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
                 restored_sets, restored_exercises, settings_done = await state.restore_backup(
                     parsed, mode=mode
                 )
-                msg = f"Restored {restored_sets} sets and {restored_exercises} exercises ({mode} mode)!"
+                msg = f"Restore complete: {restored_sets} sets, {restored_exercises} exercises ({mode})."
                 page.show_dialog(
                     ft.SnackBar(
                         content=ft.Text(msg),
@@ -125,17 +137,18 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
             title=ft.Row(
                 spacing=8,
                 controls=[
-                    ft.Icon(ft.Icons.RESTORE, color=ft.Colors.PRIMARY, size=24),
+                    ft.Icon(ft.Icons.RESTORE_OUTLINED, color=ft.Colors.PRIMARY, size=24),
                     ft.Text("Confirm Restore", weight=ft.FontWeight.BOLD),
                 ],
             ),
             content=ft.Container(
-                width=340,
+                width=min(340, max(240, (getattr(page, "width", None) or 390) - 48)),
                 content=ft.Column(
                     spacing=12,
                     tight=True,
                     controls=[
-                        ft.Text(f"Source: {source_name}", size=12, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"Source: {source_name}", size=12, weight=ft.FontWeight.BOLD,
+                                max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                         ft.Container(
                             padding=10,
                             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
@@ -144,8 +157,9 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
                                 spacing=4,
                                 controls=[
                                     ft.Text(f"Backup Date: {created_at[:19]}", size=11, color=ft.Colors.OUTLINE),
-                                    ft.Text(f"• {sets_count} workout sets", size=12, weight=ft.FontWeight.BOLD),
-                                    ft.Text(f"• {exercises_count} exercises", size=12, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{sets_count} workout sets", size=12, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{exercises_count} exercises", size=12, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"{weight_count} weigh-ins", size=12, weight=ft.FontWeight.BOLD),
                                 ],
                             ),
                         ),
@@ -158,11 +172,12 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
             actions=[
                 ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
                 ft.FilledButton(
-                    "Restore Now",
+                    "Restore",
                     icon=ft.Icons.CHECK,
                     on_click=execute_restore,
                 ),
             ],
+            scrollable=True,
         )
 
         page.show_dialog(confirm_dialog)
@@ -274,7 +289,8 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
                     spacing=6,
                     controls=[
                         ft.Icon(ft.Icons.HISTORY, size=16),
-                        ft.Text(p.name, size=11),
+                        ft.Text(p.name, size=11, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                     ],
                 ),
                 on_click=handle_local_backup_click,
@@ -285,42 +301,24 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
         title=ft.Row(
             spacing=8,
             controls=[
-                ft.Icon(ft.Icons.RESTORE, color=ft.Colors.PRIMARY, size=24),
-                ft.Text("Restore Workout Data", weight=ft.FontWeight.BOLD),
+                ft.Icon(ft.Icons.RESTORE_OUTLINED, color=ft.Colors.PRIMARY, size=24),
+                ft.Text("Restore Backup", weight=ft.FontWeight.BOLD),
             ],
         ),
         content=ft.Container(
-            width=340,
+            width=min(340, max(240, (getattr(page, "width", None) or 390) - 48)),
             content=ft.Column(
                 spacing=12,
                 tight=True,
                 controls=[
                     ft.Text(
-                        "Import a backup to recover your workout history and exercises.",
+                        "Import workout history, exercises, settings, and weigh-ins.",
                         size=13,
                     ),
-                    ft.FilledButton(
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            spacing=6,
-                            controls=[
-                                ft.Icon(ft.Icons.FILE_OPEN, size=18),
-                                ft.Text("Choose Backup File (.json)", weight=ft.FontWeight.BOLD),
-                            ],
-                        ),
-                        on_click=on_pick_file_click,
-                    ),
-                    ft.OutlinedButton(
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            spacing=6,
-                            controls=[
-                                ft.Icon(ft.Icons.PASTE, size=16),
-                                ft.Text("Restore from Clipboard"),
-                            ],
-                        ),
-                        on_click=on_paste_clipboard_click,
-                    ),
+                    ft.FilledButton("Choose JSON file", icon=ft.Icons.FILE_OPEN_OUTLINED,
+                                    on_click=on_pick_file_click),
+                    ft.OutlinedButton("Paste JSON", icon=ft.Icons.CONTENT_PASTE,
+                                      on_click=on_paste_clipboard_click),
                     *local_options,
                 ],
             ),
@@ -328,6 +326,7 @@ async def show_restore_dialog(page: ft.Page, state: AppState) -> None:
         actions=[
             ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
         ],
+        scrollable=True,
     )
 
     page.show_dialog(initial_dialog)

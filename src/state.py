@@ -2,13 +2,14 @@
 
 import asyncio
 from datetime import datetime
+import math
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 
 import flet as ft
 
 from config import DEFAULT_EXERCISES_DATA, DEFAULT_SETTINGS
-from models import Exercise, SetRecord
+from models import Exercise, SetRecord, WeightEntry
 from storage import AppStorage
 
 
@@ -17,6 +18,7 @@ class AppState:
         self.storage = storage or AppStorage()
         self.settings: dict = self.storage.load_settings()
         self.history: List[SetRecord] = self.storage.load_history()
+        self.weight_history: List[WeightEntry] = self.storage.load_weight_history()
         self.exercises: List[Exercise] = self.storage.load_exercises()
 
         # Fallback exercise if list is somehow empty
@@ -107,19 +109,25 @@ class AppState:
         self.notify()
 
     async def update_weight(self, delta: float = 0.0, absolute: Optional[float] = None) -> None:
+        candidate = float(absolute) if absolute is not None else self.current_weight + delta
+        if not math.isfinite(candidate):
+            raise ValueError("Weight must be a finite number.")
         if absolute is not None:
-            self.current_weight = max(0.0, min(1000.0, round(float(absolute), 2)))
+            self.current_weight = max(0.0, min(1000.0, round(candidate, 2)))
         else:
-            self.current_weight = max(0.0, min(1000.0, round(self.current_weight + delta, 2)))
+            self.current_weight = max(0.0, min(1000.0, round(candidate, 2)))
         await self.trigger_haptic("click")
         self.notify()
 
-    def set_weight_from_text(self, text: str) -> None:
+    def set_weight_from_text(self, text: str) -> bool:
         try:
             val = float(text.strip())
-            self.current_weight = max(0.0, min(1000.0, round(val, 2)))
+            if not math.isfinite(val) or not 0 <= val <= 1000:
+                return False
+            self.current_weight = round(val, 2)
+            return True
         except (ValueError, TypeError):
-            pass
+            return False
 
     def _recalculate_current_set_number(self) -> None:
         """Keep current_set_number accurately in sync with today's logged sets for current_exercise."""
@@ -140,10 +148,21 @@ class AppState:
         if matched:
             self.current_exercise = matched
             self.current_reps = max(0, min(999, matched.default_reps))
-            self.current_weight = max(0.0, min(1000.0, matched.default_weight))
+            self.current_weight = max(0.0, min(1000.0, matched.default_weight)) if math.isfinite(matched.default_weight) else 0.0
             self._recalculate_current_set_number()
             await self.trigger_haptic("click")
             self.notify()
+
+    def set_selected_default_weight(self, weight_kg: float) -> None:
+        """Finish the one-time weight setup for a catalog exercise."""
+        if not math.isfinite(weight_kg) or not 0 <= weight_kg <= 1000:
+            raise ValueError("Enter a weight from 0 to 1000 kg.")
+        exercise = self.current_exercise
+        exercise.default_weight = round(weight_kg, 2)
+        exercise.weight_setup_pending = False
+        self.current_weight = exercise.default_weight
+        self.storage.save_exercises(self.exercises)
+        self.notify()
 
     async def log_set(self, notes: Optional[str] = None) -> Tuple[bool, str]:
         # Synchronous gate: reject instantly if a log is already in flight
@@ -174,6 +193,8 @@ class AppState:
         # Validate minimum reps
         if self.current_reps <= 0:
             return False, "Reps must be at least 1 to log a set."
+        if not math.isfinite(self.current_weight) or not 0 <= self.current_weight <= 1000:
+            return False, "Enter a valid weight from 0 to 1000 kg."
 
         self._logging_in_progress = True
         self._last_logged_time = now
@@ -374,6 +395,35 @@ class AppState:
         await self.trigger_haptic("vibrate")
         self.notify()
 
+    def save_weight_entry(self, weight_kg: float, recorded_at: str, entry_id: str | None = None) -> WeightEntry:
+        recorded = datetime.fromisoformat(recorded_at)
+        now = datetime.now().astimezone()
+        if recorded.tzinfo is None:
+            recorded = recorded.astimezone()
+        if recorded > now:
+            raise ValueError("Date and time cannot be in the future.")
+        value = float(weight_kg)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("Enter a weight greater than zero.")
+        if entry_id and not any(item.id == entry_id for item in self.weight_history):
+            raise ValueError("This weigh-in no longer exists.")
+        entry = WeightEntry(weight_kg=round(value, 2), recorded_at=recorded.isoformat(timespec="minutes"), **({"id": entry_id} if entry_id else {}))
+        self.weight_history = self.storage.upsert_weight_entry(entry)
+        self.notify()
+        return entry
+
+    def delete_weight_entry(self, entry_id: str) -> None:
+        self.weight_history = self.storage.delete_weight_entry(entry_id)
+        self.notify()
+
+    def set_target_weight(self, value: float | None) -> None:
+        if value is not None:
+            value = float(value)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("Enter a target greater than zero.")
+            value = round(value, 2)
+        self.update_setting("target_weight_kg", value)
+
     async def export_csv(self) -> Tuple[Path, str, bool]:
         if not self.history:
             return Path(""), "", False
@@ -391,17 +441,9 @@ class AppState:
         return export_file, csv_content, copied
 
     async def create_backup(self) -> Tuple[Path, str, dict, bool]:
-        """Creates a portable full JSON backup of history, exercises, and settings."""
+        """Prepare a portable JSON backup for an explicit save or copy action."""
         backup_file, json_str, backup_data = self.storage.create_backup()
-        copied = False
-        if self.clipboard:
-            try:
-                await self.clipboard.set(json_str)
-                copied = True
-            except Exception:
-                pass
-        await self.trigger_haptic("vibrate")
-        return backup_file, json_str, backup_data, copied
+        return backup_file, json_str, backup_data, False
 
     async def restore_backup(
         self,
@@ -413,6 +455,7 @@ class AppState:
             backup_data, mode=mode
         )
         self.history = self.storage.load_history()
+        self.weight_history = self.storage.load_weight_history()
         self.exercises = self.storage.load_exercises()
         if not self.exercises:
             self.exercises = [

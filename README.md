@@ -14,9 +14,13 @@ SnapRep is a modern Material 3 Android workout & rep-tracking application built 
 - **Set & Weight Tracking**: Tracks set progression (e.g., Set 1, Set 2) and barbell/dumbbell weights in kg.
 - **Built-in Rest Timer**: Quick rest intervals (`30s`, `60s`, `90s`) with automatic countdown, pause/stop controls, and haptic alerts.
 - **Workout Logbook & History**: Instant session review with today's total reps, sets logged, and total volume (kg).
-- **Analytics & PRs**: Breakdown of total reps per exercise and personal record (PR) tracking.
+- **Workout insights**: Sets, reps, active days, and observed best weight or reps per exercise. Open the charts on demand to inspect weekly activity and exercise progress.
+- **Body weight**: Timestamped weigh-ins, a target, and optional daily and seven-day trend charts.
+- **Portable data**: Settings offers workout CSV, weight CSV, and JSON backup exports through the system file picker or an explicit Copy action.
 - **Flet MCP Ready**: Configured with `flet-mcp` so AI coding agents can verify controls, search icons, and inspect Flet APIs in real time.
 - **Quick start guide**: A three-step guide appears on a fresh install and can be replayed from Settings.
+- **Offline exercise catalog**: 876 sourced exercises from [Free Exercise DB](https://github.com/yuhonas/free-exercise-db), with muscle and equipment search and movement instructions. The original SnapRep exercises and their saved targets are retained; overlapping catalog names are combined. New loaded exercises ask for a starting weight once when selected, with a 0 kg option.
+- **Exercise filters**: Browse by muscle group, neck, cardio, mobility, or the source movement types including plyometrics, powerlifting, Olympic lifting, and strongman.
 
 ---
 
@@ -119,6 +123,15 @@ picker, so SnapRep does not request storage, camera, or notification access.
 These settings are in [`pyproject.toml`](./pyproject.toml) under
 `[tool.flet.android]`.
 
+### Save or restore your data
+
+Open **Settings → Your data** to export either CSV or create a JSON backup.
+Choose **Save to device / Drive** and select a location you can find later.
+SnapRep does not create a new backup in its private app storage. You can also
+copy the JSON or CSV explicitly. To restore, choose the saved JSON file in
+**Settings → Restore data**. Older backups previously saved inside SnapRep remain
+available from the Restore dialog on the same installation.
+
 ---
 
 ## 🤖 Flet MCP Integration
@@ -169,15 +182,15 @@ snap-rep/
 │   ├── assets/
 │   │   └── icon.png       # Android adaptive app icon
 │   ├── components/        # Reusable modal dialogs (Add exercise, CSV export, Confirm)
-│   ├── views/             # Modular screens (Tracker, History, Stats, Settings)
+│   ├── views/             # Tracker, History, Exercises, Stats, Weight, Settings
 │   ├── config.py          # App constants, defaults, categories
-│   ├── models.py          # Data models (Exercise, SetRecord)
+│   ├── models.py          # Exercise, SetRecord, and WeightEntry models
 │   ├── state.py           # AppState reactive state management & business logic
 │   ├── storage.py         # Local JSON persistence & atomic writes
 │   ├── theme.py           # Athletic Material 3 Dark & Light themes
 │   └── main.py            # Application entrypoint & navigation
 ├── tests/
-│   └── test_app.py        # Pytest test suite (11 unit tests)
+│   └── test_app.py        # Pytest UI and data checks
 ├── pyproject.toml         # UV project config & Flet Android build settings
 ├── README.md
 └── uv.lock

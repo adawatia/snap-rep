@@ -33,14 +33,22 @@ EXERCISE_CATEGORIES = [
     "Shoulders",
     "Arms",
     "Core",
+    "Neck",
     "Calisthenics",
     "Cardio",
+    "Mobility",
+    "Strength",
+    "Plyometrics",
+    "Powerlifting",
+    "Olympic Lifting",
+    "Strongman",
     "Other",
 ]
 
 DEFAULT_SETTINGS = {
     "haptic_feedback": True,
     "quick_tour_seen": False,
+    "target_weight_kg": None,
     "theme_palette": "coral",
     "theme_mode": "light",
     "unit": "kg",

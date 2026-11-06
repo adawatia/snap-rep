@@ -1,9 +1,8 @@
 """History view: Summary metrics, interactive monthly workout calendar,
-date-filtered exercise list, single set deletion, and CSV export.
+date-filtered exercise list and single set deletion.
 Future dates are strictly disabled.
 """
 
-import asyncio
 import calendar
 from datetime import date, datetime
 from typing import List
@@ -32,7 +31,9 @@ class HistoryView:
         self.total_volume_text = ft.Text("0 kg", size=18, weight=ft.FontWeight.BOLD)
 
         # Calendar controls
-        self.month_year_text = ft.Text("", size=17, weight=ft.FontWeight.BOLD)
+        self.month_year_text = ft.Text("", size=17, weight=ft.FontWeight.BOLD,
+                                       max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                                       text_align=ft.TextAlign.CENTER, expand=True)
         self.prev_month_btn = ft.IconButton(
             icon=ft.Icons.CHEVRON_LEFT,
             icon_size=20,
@@ -113,9 +114,6 @@ class HistoryView:
         self.update_ui()
         self.page.update()
 
-    def _on_export_click(self, e) -> None:
-        asyncio.create_task(show_export_dialog(self.page, self.state))
-
     def _on_clear_all_click(self, e) -> None:
         async def do_clear():
             await self.state.clear_history()
@@ -158,14 +156,14 @@ class HistoryView:
         self.next_month_btn.disabled = is_next_disabled
         self.next_month_btn.icon_color = ft.Colors.OUTLINE_VARIANT if is_next_disabled else None
 
-        # Check memoization key to avoid rebuilding 40+ child controls when month, history length, and selection are identical
-        cal_key = (self.cal_year, self.cal_month, len(self.state.history), self.selected_date_str, self.view_mode)
+        # Dot state depends on the dates, even when the number of records is unchanged.
+        workout_dates = {rec.timestamp[:10] for rec in self.state.history if len(rec.timestamp) >= 10}
+        cal_key = (self.cal_year, self.cal_month, frozenset(workout_dates), self.selected_date_str, self.view_mode)
         if getattr(self, "_last_cal_key", None) == cal_key and len(self.calendar_grid.controls) > 0:
             return
         self._last_cal_key = cal_key
 
         # Fast set lookup for workout presence
-        workout_dates = {rec.timestamp[:10] for rec in self.state.history if len(rec.timestamp) >= 10}
         today_str = today.strftime("%Y-%m-%d")
 
         # Days of week header
@@ -189,7 +187,7 @@ class HistoryView:
             cell_controls = []
             for day in week:
                 if day == 0:
-                    cell_controls.append(ft.Container(expand=1, height=44))
+                    cell_controls.append(ft.Container(expand=1, height=48))
                     continue
 
                 cell_date = date(self.cal_year, self.cal_month, day)
@@ -201,7 +199,7 @@ class HistoryView:
                     cell_controls.append(
                         ft.Container(
                             expand=1,
-                            height=44,
+                            height=48,
                             alignment=ft.Alignment.CENTER,
                             content=ft.Text(
                                 str(day),
@@ -254,7 +252,7 @@ class HistoryView:
                 cell_controls.append(
                     ft.Container(
                         expand=1,
-                        height=44,
+                        height=48,
                         alignment=ft.Alignment.CENTER,
                         border_radius=8,
                         bgcolor=cell_bg,
@@ -620,13 +618,10 @@ class HistoryView:
             content=ft.Column(
                 spacing=12,
                 controls=[
-                    ft.Row(
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        controls=[
-                            ft.Row(spacing=2, controls=[self.prev_month_btn, self.month_year_text, self.next_month_btn]),
-                            ft.TextButton("Today", on_click=self._go_to_today),
-                        ],
-                    ),
+                    ft.Row(spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                           controls=[self.prev_month_btn, self.month_year_text, self.next_month_btn]),
+                    ft.Row(alignment=ft.MainAxisAlignment.END,
+                           controls=[ft.TextButton("Today", on_click=self._go_to_today)]),
                     self.calendar_grid,
                     ft.Text("A dot marks a day with recorded sets.", size=11, color=ft.Colors.ON_SURFACE_VARIANT),
                 ],

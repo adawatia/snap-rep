@@ -7,7 +7,8 @@ import flet as ft
 from components.add_exercise_dialog import show_add_exercise_dialog
 from components.confirm_dialog import show_confirm_dialog
 from components.edit_exercise_dialog import show_edit_exercise_dialog
-from components.exercise_browse import exercise_defaults, filter_exercises
+from components.exercise_browse import BROWSE_PAGE_SIZE, exercise_category_label, exercise_count_label, exercise_defaults, filter_exercises
+from exercise_catalog import catalog_entry
 from config import EXERCISE_CATEGORIES
 from models import Exercise
 from state import AppState
@@ -19,6 +20,7 @@ class ExercisesView:
 
         self._filter_query = ""
         self._selected_category = "All"
+        self._visible_limit = BROWSE_PAGE_SIZE
 
         # Search field (Minimal, borderless)
         self.search_field = ft.TextField(
@@ -57,11 +59,13 @@ class ExercisesView:
 
     def _on_search_change(self, e) -> None:
         self._filter_query = (e.control.value or "").strip()
+        self._visible_limit = BROWSE_PAGE_SIZE
         self._render_exercises()
         self.page.update()
 
     def _select_category(self, cat: str) -> None:
         self._selected_category = cat
+        self._visible_limit = BROWSE_PAGE_SIZE
         self._render_category_pills()
         self._render_exercises()
         self.page.update()
@@ -83,6 +87,7 @@ class ExercisesView:
         )
 
     def _open_details(self, exercise: Exercise) -> None:
+        source = catalog_entry(exercise.name) if not exercise.is_custom else None
         def edit(_):
             self.page.pop_dialog()
             self._open_edit_dialog(exercise)
@@ -120,7 +125,7 @@ class ExercisesView:
                     ),
                     ft.Text(exercise.name, size=22, weight=ft.FontWeight.BOLD),
                     ft.Text(
-                        f"{exercise.category} · {'Custom exercise' if exercise.is_custom else 'Built-in exercise'}",
+                        f"{exercise_category_label(exercise)} · {'Custom exercise' if exercise.is_custom else 'Built-in exercise'}",
                         size=13,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
@@ -136,6 +141,23 @@ class ExercisesView:
                             ],
                         ),
                     ),
+                    *([ft.Text(
+                        " · ".join(part for part in [
+                            (source.get("equipment") or "").title(),
+                            ", ".join(source.get("primaryMuscles") or []).title(),
+                        ] if part),
+                        size=13,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    )] if source else []),
+                    *([ft.Column(
+                        spacing=8,
+                        controls=[
+                            ft.Text("HOW TO", size=11, weight=ft.FontWeight.BOLD,
+                                    color=ft.Colors.ON_SURFACE_VARIANT),
+                            *(ft.Text(f"{i}. {step}", size=13)
+                              for i, step in enumerate(source.get("instructions") or [], 1)),
+                        ],
+                    )] if source and source.get("instructions") else []),
                     *actions,
                 ],
             ),
@@ -144,6 +166,7 @@ class ExercisesView:
             ft.BottomSheet(
                 content=details,
                 show_drag_handle=True,
+                draggable=True,
                 scrollable=True,
                 maintain_bottom_view_insets_padding=True,
                 shape=ft.RoundedRectangleBorder(
@@ -179,7 +202,7 @@ class ExercisesView:
                         size=12,
                         weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.W_500,
                     ),
-                    height=44,
+                    height=48,
                     style=ft.ButtonStyle(
                         bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
                         color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
@@ -195,7 +218,8 @@ class ExercisesView:
         filtered, total = filter_exercises(
             self.state.exercises, self._filter_query, self._selected_category
         )
-        self.count_badge.value = f"Showing {len(filtered)} of {total} exercises"
+        visible = filtered[:self._visible_limit]
+        self.count_badge.value = exercise_count_label(len(visible), len(filtered), total)
         self.exercise_list_column.key = f"library:{self._filter_query.casefold()}:{self._selected_category.casefold()}"
 
         if not filtered:
@@ -242,8 +266,8 @@ class ExercisesView:
             return
 
         rows: list[ft.Control] = []
-        for exercise in filtered:
-            meta = f"{exercise.category} · {exercise_defaults(exercise)}"
+        for exercise in visible:
+            meta = f"{exercise_category_label(exercise)} · {exercise_defaults(exercise)}"
             if exercise.is_custom:
                 meta += " · Custom"
             rows.append(
@@ -273,7 +297,21 @@ class ExercisesView:
                 )
             )
             rows.append(ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT))
-        self.exercise_list_column.controls = rows[:-1]
+        if len(filtered) > len(visible):
+            rows.append(ft.Container(
+                padding=16,
+                alignment=ft.Alignment.CENTER,
+                content=ft.OutlinedButton(
+                    "Show more exercises",
+                    on_click=lambda _: self._show_more(),
+                ),
+            ))
+        self.exercise_list_column.controls = rows[:-1] if len(filtered) == len(visible) else rows
+
+    def _show_more(self) -> None:
+        self._visible_limit += BROWSE_PAGE_SIZE
+        self._render_exercises()
+        self.page.update()
 
     def update_ui(self) -> None:
         self._render_category_pills()

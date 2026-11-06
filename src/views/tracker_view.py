@@ -1,6 +1,5 @@
 """Tracker view: exercise selection, rep and weight controls, rest timer, and set logging."""
 
-import asyncio
 import flet as ft
 
 from components.add_exercise_dialog import show_add_exercise_dialog
@@ -32,9 +31,7 @@ class TrackerView:
             content=ft.Text(f"Default ({self.state.current_exercise.default_reps})", size=11),
             icon=ft.Icons.RESTORE,
             icon_color=ft.Colors.OUTLINE,
-            on_click=lambda _: asyncio.create_task(
-                self.state.update_reps(absolute=self.state.current_exercise.default_reps)
-            ),
+            on_click=self._reset_reps_to_default,
         )
 
         # Weight input field and default button
@@ -48,14 +45,15 @@ class TrackerView:
             dense=True,
             content_padding=ft.Padding(10, 6, 10, 6),
             on_change=self._on_weight_input_change,
+            on_blur=self._on_weight_input_blur,
         )
+        self._weight_input_valid = True
+        self._weight_input_exercise_name = self.state.current_exercise.name
         self.default_weight_btn = ft.TextButton(
             content=ft.Text(f"Default ({self._format_weight(self.state.current_exercise.default_weight)}kg)", size=11),
             icon=ft.Icons.RESTORE,
             icon_color=ft.Colors.OUTLINE,
-            on_click=lambda _: asyncio.create_task(
-                self.state.update_weight(absolute=self.state.current_exercise.default_weight)
-            ),
+            on_click=self._reset_weight_to_default,
         )
 
         # Rest Timer display & controls
@@ -76,7 +74,7 @@ class TrackerView:
             icon_size=18,
             size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
             tooltip="Pause / Resume",
-            on_click=lambda _: asyncio.create_task(self.state.toggle_timer()),
+            on_click=self._toggle_timer,
         )
         self.timer_reset_btn = ft.IconButton(
             icon=ft.Icons.STOP,
@@ -84,7 +82,7 @@ class TrackerView:
             icon_color=ft.Colors.ERROR,
             size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
             tooltip="Reset timer",
-            on_click=lambda _: asyncio.create_task(self.state.reset_timer()),
+            on_click=self._reset_timer,
         )
         self.timer_pills_container = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -181,7 +179,8 @@ class TrackerView:
                 pass
 
     def _format_weight(self, wt: float) -> str:
-        return str(int(wt) if wt.is_integer() else round(wt, 1))
+        value = float(wt)
+        return str(int(value) if value.is_integer() else round(value, 2))
 
     def _open_exercise_picker(self, e) -> None:
         def on_select(_):
@@ -192,6 +191,7 @@ class TrackerView:
             self.page,
             self.state,
             on_select=on_select,
+            highlight_current=self._has_selected_exercise,
         )
 
     def _open_add_dialog(self, e) -> None:
@@ -206,11 +206,43 @@ class TrackerView:
         )
 
     def _on_weight_input_change(self, e) -> None:
-        self.state.set_weight_from_text(e.control.value)
+        self._weight_input_valid = self.state.set_weight_from_text(e.control.value or "")
+        self.weight_input.error_text = None if self._weight_input_valid else "Enter 0–1000 kg."
+        self._sync_log_btn_state()
+        self.page.update()
+
+    def _on_weight_input_blur(self, e) -> None:
+        if self._weight_input_valid:
+            self.weight_input.value = self._format_weight(self.state.current_weight)
+            self.page.update()
+
+    async def _reset_reps_to_default(self, e) -> None:
+        await self.state.update_reps(absolute=self.state.current_exercise.default_reps)
+
+    async def _reset_weight_to_default(self, e) -> None:
+        await self.state.update_weight(absolute=self.state.current_exercise.default_weight)
+
+    async def _toggle_timer(self, e) -> None:
+        await self.state.toggle_timer()
+
+    async def _reset_timer(self, e) -> None:
+        await self.state.reset_timer()
+
+    async def _decrease_rep(self, e) -> None:
+        await self.state.update_reps(-1)
+
+    async def _increase_rep(self, e) -> None:
+        await self.state.update_reps(1)
+
+    async def _decrease_weight(self, e) -> None:
+        await self.state.update_weight(-2.5)
+
+    async def _increase_weight(self, e) -> None:
+        await self.state.update_weight(2.5)
 
     def _is_log_blocked(self) -> bool:
         """Require an explicit exercise choice before recording a set."""
-        return (not self._has_selected_exercise or self._is_logging or
+        return (not self._has_selected_exercise or not self._weight_input_valid or self._is_logging or
                 (self.state.timer_running and self.state.timer_seconds_remaining > 0))
 
     def _sync_log_btn_state(self) -> None:
@@ -219,6 +251,9 @@ class TrackerView:
         if not self._has_selected_exercise:
             label = "SELECT AN EXERCISE"
             icon = ft.Icons.FITNESS_CENTER
+        elif not self._weight_input_valid:
+            label = "CHECK WEIGHT"
+            icon = ft.Icons.ERROR_OUTLINE
         elif blocked and self.state.timer_running:
             label = "REST IN PROGRESS"
             icon = ft.Icons.TIMER
@@ -288,17 +323,20 @@ class TrackerView:
         ]
         pills = []
         for label, delta in steps:
+            async def adjust_weight(_, d=delta):
+                await self.state.update_weight(delta=d)
+
             pills.append(
                 ft.OutlinedButton(
                     content=ft.Text(label, size=12, weight=ft.FontWeight.BOLD, no_wrap=True),
                     expand=True,
-                    height=44,
+                    height=48,
                     tooltip=f"Adjust weight by {label} kg",
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=10),
                         padding=ft.Padding(4, 4, 4, 4),
                     ),
-                    on_click=lambda _, d=delta: asyncio.create_task(self.state.update_weight(delta=d)),
+                    on_click=adjust_weight,
                 )
             )
         return ft.Row(
@@ -310,12 +348,15 @@ class TrackerView:
         presets = [30, 60, 90, 120]
         pills = []
         for sec in presets:
+            async def start_timer(_, duration=sec):
+                await self.state.set_timer_preset(duration)
+
             is_active = (self.state.timer_running and self.state.timer_seconds_remaining == sec)
             pills.append(
                 ft.OutlinedButton(
                     content=ft.Text(f"{sec}s", size=12, weight=ft.FontWeight.BOLD, no_wrap=True),
                     expand=True,
-                    height=44,
+                    height=48,
                     tooltip=f"Start a {sec} second rest timer",
                     style=ft.ButtonStyle(
                         bgcolor=ft.Colors.PRIMARY_CONTAINER if is_active else None,
@@ -323,7 +364,7 @@ class TrackerView:
                         shape=ft.RoundedRectangleBorder(radius=10),
                         padding=ft.Padding(4, 4, 4, 4),
                     ),
-                    on_click=lambda _, s=sec: asyncio.create_task(self.state.set_timer_preset(s)),
+                    on_click=start_timer,
                 )
             )
         self.timer_pills_container.controls = pills
@@ -332,6 +373,10 @@ class TrackerView:
     def update_ui(self) -> None:
         if self.state.current_exercise.name != self._initial_exercise_name:
             self._has_selected_exercise = True
+        if self.state.current_exercise.name != self._weight_input_exercise_name:
+            self._weight_input_exercise_name = self.state.current_exercise.name
+            self._weight_input_valid = True
+            self.weight_input.error_text = None
         # Reps & Badge
         self.reps_display.value = str(self.state.current_reps)
         self.set_badge.value = f"SET {self.state.current_set_number}"
@@ -342,7 +387,7 @@ class TrackerView:
 
         # Weight input field and default button
         formatted_wt = self._format_weight(self.state.current_weight)
-        if self.weight_input.value != formatted_wt:
+        if self._weight_input_valid and self.weight_input.value != formatted_wt:
             self.weight_input.value = formatted_wt
         formatted_default_wt = self._format_weight(self.state.current_exercise.default_weight)
         self.default_weight_btn.content = ft.Text(
@@ -460,7 +505,7 @@ class TrackerView:
                                                 icon_size=32,
                                                 size_constraints=ft.BoxConstraints(min_width=56, min_height=56),
                                                 tooltip="Decrease 1 rep",
-                                                on_click=lambda _: asyncio.create_task(self.state.update_reps(-1)),
+                                                on_click=self._decrease_rep,
                                             ),
                                             ft.Column(
                                                 spacing=0,
@@ -481,7 +526,7 @@ class TrackerView:
                                                 icon_color=ft.Colors.PRIMARY,
                                                 size_constraints=ft.BoxConstraints(min_width=56, min_height=56),
                                                 tooltip="Increase 1 rep",
-                                                on_click=lambda _: asyncio.create_task(self.state.update_reps(+1)),
+                                                on_click=self._increase_rep,
                                             ),
                                         ],
                                     ),
@@ -523,7 +568,7 @@ class TrackerView:
                                                 icon_size=26,
                                                 size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
                                                 tooltip="Decrease 2.5 kg",
-                                                on_click=lambda _: asyncio.create_task(self.state.update_weight(-2.5)),
+                                                on_click=self._decrease_weight,
                                             ),
                                             self.weight_input,
                                             ft.IconButton(
@@ -532,7 +577,7 @@ class TrackerView:
                                                 icon_color=ft.Colors.PRIMARY,
                                                 size_constraints=ft.BoxConstraints(min_width=48, min_height=48),
                                                 tooltip="Increase 2.5 kg",
-                                                on_click=lambda _: asyncio.create_task(self.state.update_weight(+2.5)),
+                                                on_click=self._increase_weight,
                                             ),
                                         ],
                                     ),

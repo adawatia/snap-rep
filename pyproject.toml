@@ -9,6 +9,7 @@ authors = [
 ]
 dependencies = [
     "flet>=1.0.5",
+    "flet-charts==1.0.5",
     "snaprep-dynamic-color==0.1.0",
 ]
 

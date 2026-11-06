@@ -1,6 +1,7 @@
 """Dialog component for editing exercise parameters (reps, weight, category, and name for custom exercises)."""
 
 from typing import Callable, Optional
+import math
 import flet as ft
 
 from config import EXERCISE_CATEGORIES
@@ -68,6 +69,8 @@ def show_edit_exercise_dialog(
             return
         clean_name = (name_field.value or "").strip()
         name_field.error_text = None
+        reps_field.error_text = None
+        weight_field.error_text = None
         status_text.visible = False
 
         if not clean_name:
@@ -78,18 +81,22 @@ def show_edit_exercise_dialog(
             return
 
         try:
-            reps = int(reps_field.value or exercise.default_reps)
-            if reps <= 0 or reps > 999:
-                reps = max(1, min(999, reps))
-        except ValueError:
-            reps = exercise.default_reps
+            reps = int((reps_field.value or "").strip())
+            if not 1 <= reps <= 999:
+                raise ValueError
+        except (ValueError, TypeError):
+            reps_field.error_text = "Enter 1–999 reps."
+            page.update()
+            return
 
         try:
-            wt = float(weight_field.value or exercise.default_weight)
-            if wt < 0 or wt > 1000:
-                wt = max(0.0, min(1000.0, wt))
-        except ValueError:
-            wt = exercise.default_weight
+            wt = float((weight_field.value or "").strip())
+            if not math.isfinite(wt) or not 0 <= wt <= 1000:
+                raise ValueError
+        except (ValueError, TypeError):
+            weight_field.error_text = "Enter 0–1000 kg."
+            page.update()
+            return
 
         is_saving = True
         save_button.disabled = True
@@ -129,9 +136,10 @@ def show_edit_exercise_dialog(
     save_button.on_click = handle_save
     page.show_dialog(
         ft.AlertDialog(
-            title=ft.Text(f"Edit {exercise.name}", weight=ft.FontWeight.BOLD),
+            title=ft.Text(f"Edit {exercise.name}", weight=ft.FontWeight.BOLD,
+                          max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
             content=ft.Container(
-                width=340,
+                width=min(340, max(120, (getattr(page, "width", None) or 390) - 80)),
                 content=ft.Column(
                     spacing=12,
                     tight=True,
@@ -154,5 +162,7 @@ def show_edit_exercise_dialog(
                 ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
                 save_button,
             ],
+            scrollable=True,
+            inset_padding=ft.Padding(16, 16, 16, 16),
         )
     )

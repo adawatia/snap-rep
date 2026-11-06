@@ -10,7 +10,7 @@ import tempfile
 from typing import Any, List, Optional, Tuple, Union
 
 from config import DEFAULT_SETTINGS
-from models import DEFAULT_EXERCISES, Exercise, SetRecord, get_default_exercises
+from models import DEFAULT_EXERCISES, Exercise, SetRecord, WeightEntry, get_default_exercises
 
 
 def _atomic_write_json(file_path: Path, data: Any) -> None:
@@ -112,15 +112,50 @@ class AppStorage:
         self.history_file = self.storage_dir / "history.json"
         self.settings_file = self.storage_dir / "settings.json"
         self.exercises_file = self.storage_dir / "exercises.json"
+        self.weight_file = self.storage_dir / "weight_history.json"
         self.exports_dir = self.storage_dir / "exports"
-        self.exports_dir.mkdir(parents=True, exist_ok=True)
         self.backups_dir = self.storage_dir / "backups"
-        self.backups_dir.mkdir(parents=True, exist_ok=True)
 
         # In-memory write-through caches
         self._history_cache: Optional[List[SetRecord]] = None
         self._settings_cache: Optional[dict] = None
         self._exercises_cache: Optional[List[Exercise]] = None
+        self._weight_cache: Optional[List[WeightEntry]] = None
+
+    def load_weight_history(self) -> List[WeightEntry]:
+        if self._weight_cache is not None:
+            return list(self._weight_cache)
+        try:
+            raw = json.loads(self.weight_file.read_text(encoding="utf-8")) if self.weight_file.exists() else []
+            seen = set()
+            entries = []
+            for item in raw:
+                try:
+                    entry = WeightEntry.from_dict(item)
+                    if entry.id not in seen:
+                        entries.append(entry)
+                        seen.add(entry.id)
+                except (KeyError, TypeError, ValueError):
+                    continue
+            self._weight_cache = sorted(entries, key=lambda item: datetime.fromisoformat(item.recorded_at))
+        except (OSError, ValueError, TypeError):
+            self._weight_cache = []
+        return list(self._weight_cache)
+
+    def save_weight_history(self, entries: List[WeightEntry]) -> None:
+        ordered = sorted(entries, key=lambda item: datetime.fromisoformat(item.recorded_at))
+        _atomic_write_json(self.weight_file, [item.to_dict() for item in ordered])
+        self._weight_cache = list(ordered)
+
+    def upsert_weight_entry(self, entry: WeightEntry) -> List[WeightEntry]:
+        entries = [item for item in self.load_weight_history() if item.id != entry.id]
+        entries.append(entry)
+        self.save_weight_history(entries)
+        return self.load_weight_history()
+
+    def delete_weight_entry(self, entry_id: str) -> List[WeightEntry]:
+        self.save_weight_history([item for item in self.load_weight_history() if item.id != entry_id])
+        return self.load_weight_history()
 
     # --- History Operations ---
 
@@ -138,7 +173,10 @@ class AppStorage:
                 records: List[SetRecord] = []
                 for item in data:
                     if isinstance(item, dict):
-                        rec = SetRecord.from_dict(item)
+                        try:
+                            rec = SetRecord.from_dict(item)
+                        except (KeyError, TypeError, ValueError, OverflowError):
+                            continue
                         if rec.id in seen_ids:
                             continue
                         if not any(_is_rapid_duplicate(existing, rec) for existing in records):
@@ -207,7 +245,10 @@ class AppStorage:
                 deduped: List[Exercise] = []
                 for item in data:
                     if isinstance(item, dict):
-                        ex = Exercise.from_dict(item)
+                        try:
+                            ex = Exercise.from_dict(item)
+                        except (KeyError, TypeError, ValueError, OverflowError):
+                            continue
                         clean = ex.name.strip().lower()
                         if clean and clean not in seen_names:
                             seen_names.add(clean)
@@ -216,7 +257,25 @@ class AppStorage:
                     defaults = get_default_exercises()
                     self.save_exercises(defaults)
                     return list(defaults)
-                self._exercises_cache = deduped
+                # Upgrade older libraries without changing a user's saved targets.
+                defaults = get_default_exercises()
+                default_categories = {item.name.casefold(): item.category for item in defaults}
+                changed = False
+                for exercise in deduped:
+                    if (not exercise.is_custom and exercise.category == "Other"
+                            and default_categories.get(exercise.name.casefold()) == "Neck"):
+                        exercise.category = "Neck"
+                        changed = True
+                for exercise in defaults:
+                    clean = exercise.name.strip().casefold()
+                    if clean not in seen_names:
+                        seen_names.add(clean)
+                        deduped.append(exercise)
+                        changed = True
+                if changed:
+                    self.save_exercises(deduped)
+                else:
+                    self._exercises_cache = deduped
                 return list(deduped)
         except Exception:
             return get_default_exercises()
@@ -327,14 +386,21 @@ class AppStorage:
         buffer.close()
 
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        export_file = self.exports_dir / f"snaprep_history_{timestamp_str}.csv"
-        try:
-            with open(export_file, "w", encoding="utf-8", newline="") as f:
-                f.write(csv_content)
-        except Exception:
-            pass
+        export_file = Path(f"snaprep_history_{timestamp_str}.csv")
 
         return export_file, csv_content
+
+    def export_weight_to_csv(self) -> Tuple[Path, str]:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["ID", "Recorded_at", "Weight_kg"])
+        for entry in self.load_weight_history():
+            writer.writerow([entry.id, entry.recorded_at, entry.weight_kg])
+        content = buffer.getvalue()
+        buffer.close()
+        filename = f"snaprep_weight_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        export_file = Path(filename)
+        return export_file, content
 
     # --- Settings Operations ---
 
@@ -368,24 +434,22 @@ class AppStorage:
         records = self.load_history()
         exercises = self.load_exercises()
         settings = self.load_settings()
+        weight_entries = self.load_weight_history()
 
         backup_data = {
-            "version": 1,
+            "version": 2,
             "app": "SnapRep",
             "app_version": "0.1.0",
             "created_at": datetime.now().isoformat(),
             "history": [r.to_dict() for r in records],
+            "weight_history": [entry.to_dict() for entry in weight_entries],
             "exercises": [e.to_dict() for e in exercises],
             "settings": settings,
         }
 
         json_str = json.dumps(backup_data, indent=2, ensure_ascii=False)
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = self.backups_dir / f"snaprep_backup_{timestamp_str}.json"
-        try:
-            _atomic_write_json(backup_file, backup_data)
-        except Exception:
-            pass
+        backup_file = Path(f"snaprep_backup_{timestamp_str}.json")
 
         return backup_file, json_str, backup_data
 
@@ -418,12 +482,26 @@ class AppStorage:
             history_items = backup_data
             exercise_items = []
             settings_items = {}
+            weight_items = None
+            sections = {"history"}
         elif isinstance(backup_data, dict):
             history_items = backup_data.get("history", [])
             exercise_items = backup_data.get("exercises", [])
             settings_items = backup_data.get("settings", {})
+            weight_items = backup_data.get("weight_history")
+            sections = set(backup_data)
         else:
             raise ValueError("Invalid backup format: expected JSON object or array.")
+
+        if mode not in ("merge", "replace"):
+            raise ValueError("Restore mode must be Merge or Replace.")
+        for label, items in (("history", history_items), ("exercises", exercise_items)):
+            if not isinstance(items, list):
+                raise ValueError(f"Invalid backup: {label} must be a list.")
+        if weight_items is not None and not isinstance(weight_items, list):
+            raise ValueError("Invalid backup: weight history must be a list.")
+        if not isinstance(settings_items, dict):
+            raise ValueError("Invalid backup: settings must be an object.")
 
         # 1. Parse valid SetRecords
         new_records: List[SetRecord] = []
@@ -443,14 +521,24 @@ class AppStorage:
                 except Exception:
                     continue
 
+        new_weights: List[WeightEntry] = []
+        if isinstance(weight_items, list):
+            for item in weight_items:
+                if isinstance(item, dict):
+                    try:
+                        new_weights.append(WeightEntry.from_dict(item))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+
         restored_sets = 0
         restored_exercises = 0
         settings_restored = False
 
         if mode == "replace":
             # Overwrite history
-            self.save_history(new_records)
-            restored_sets = len(new_records)
+            if "history" in sections:
+                self.save_history(new_records)
+                restored_sets = len(new_records)
 
             # Rebuild exercises, preserving standard defaults
             base_exercises = get_default_exercises()
@@ -467,11 +555,17 @@ class AppStorage:
                         if target.name.strip().lower() == clean_name:
                             target.default_reps = ex.default_reps
                             target.default_weight = ex.default_weight
-            self.save_exercises(final_exercises)
+            if "exercises" in sections:
+                self.save_exercises(final_exercises)
+
+            if weight_items is not None:
+                self.save_weight_history(new_weights)
 
             # Replace settings
             if settings_items and isinstance(settings_items, dict):
                 merged_settings = {**DEFAULT_SETTINGS, **settings_items}
+                if "target_weight_kg" not in settings_items:
+                    merged_settings["target_weight_kg"] = self.load_settings().get("target_weight_kg")
                 self.save_settings(merged_settings)
                 settings_restored = True
 
@@ -491,6 +585,15 @@ class AppStorage:
             merged_history.sort(key=lambda r: r.timestamp, reverse=True)
             self.save_history(merged_history)
 
+            if weight_items is not None:
+                current_weights = self.load_weight_history()
+                seen_weight_ids = {item.id for item in current_weights}
+                for entry in new_weights:
+                    if entry.id not in seen_weight_ids:
+                        current_weights.append(entry)
+                        seen_weight_ids.add(entry.id)
+                self.save_weight_history(current_weights)
+
             current_exercises = self.load_exercises()
             curr_names = {e.name.strip().lower() for e in current_exercises}
             merged_exercises = list(current_exercises)
@@ -507,7 +610,7 @@ class AppStorage:
             if settings_items and isinstance(settings_items, dict):
                 current_settings = self.load_settings()
                 for k, v in settings_items.items():
-                    if k not in current_settings:
+                    if k not in current_settings or (k == "target_weight_kg" and current_settings[k] is None):
                         current_settings[k] = v
                         settings_restored = True
                 if settings_restored:

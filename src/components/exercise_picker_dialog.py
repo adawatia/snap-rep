@@ -4,7 +4,8 @@ from typing import Callable, List, Optional
 import flet as ft
 
 from components.add_exercise_dialog import show_add_exercise_dialog
-from components.exercise_browse import exercise_defaults, filter_exercises
+from components.exercise_browse import BROWSE_PAGE_SIZE, exercise_category_label, exercise_count_label, exercise_defaults, filter_exercises
+from components.exercise_weight_setup import show_weight_setup
 from config import EXERCISE_CATEGORIES
 from models import Exercise
 from state import AppState
@@ -14,9 +15,11 @@ def show_exercise_picker(
     page: ft.Page,
     state: AppState,
     on_select: Optional[Callable[[Exercise], None]] = None,
+    highlight_current: bool = False,
 ) -> None:
     search_query = ""
     selected_category = "All"
+    visible_limit = BROWSE_PAGE_SIZE
 
     categories = ["All", "Custom Only"] + list(EXERCISE_CATEGORIES)
 
@@ -26,8 +29,9 @@ def show_exercise_picker(
 
     # 2. Search input (Minimal, borderless, no icon)
     def on_search_change(e):
-        nonlocal search_query
+        nonlocal search_query, visible_limit
         search_query = (e.control.value or "").strip()
+        visible_limit = BROWSE_PAGE_SIZE
         render_list()
         page.update()
 
@@ -54,8 +58,9 @@ def show_exercise_picker(
     )
 
     def select_category(cat: str):
-        nonlocal selected_category
+        nonlocal selected_category, visible_limit
         selected_category = cat
+        visible_limit = BROWSE_PAGE_SIZE
         render_categories()
         render_list()
         page.update()
@@ -71,7 +76,7 @@ def show_exercise_picker(
                         size=11,
                         weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.W_500,
                     ),
-                    height=44,
+                    height=48,
                     style=ft.ButtonStyle(
                         bgcolor=ft.Colors.PRIMARY if is_active else ft.Colors.SURFACE_CONTAINER_HIGHEST,
                         color=ft.Colors.ON_PRIMARY if is_active else ft.Colors.ON_SURFACE_VARIANT,
@@ -122,16 +127,19 @@ def show_exercise_picker(
             page.pop_dialog()
             if on_select:
                 on_select(matched)
+            if matched.weight_setup_pending:
+                show_weight_setup(page, state)
             page.update()
         finally:
             is_choosing = False
 
     def render_list():
         filtered, total = filter_exercises(state.exercises, search_query, selected_category)
+        visible = filtered[:visible_limit]
 
         is_filtering = bool(search_query or selected_category != "All")
-        count_badge.value = f"Showing {len(filtered)} of {total} exercises"
-        count_badge.visible = is_filtering
+        count_badge.value = exercise_count_label(len(visible), len(filtered), total)
+        count_badge.visible = is_filtering or len(filtered) > len(visible)
         list_column.key = f"picker:{search_query.casefold()}:{selected_category.casefold()}"
 
         cards: List[ft.Control] = []
@@ -179,9 +187,9 @@ def show_exercise_picker(
 
         current_name_clean = state.current_exercise.name.strip().casefold()
 
-        for ex in filtered:
-            is_current = (ex.name.strip().casefold() == current_name_clean)
-            target_str = f"{ex.category} • {exercise_defaults(ex)}"
+        for ex in visible:
+            is_current = highlight_current and (ex.name.strip().casefold() == current_name_clean)
+            target_str = f"{exercise_category_label(ex)} • {exercise_defaults(ex)}"
 
             card_border = (
                 ft.Border.all(1.5, ft.Colors.PRIMARY)
@@ -270,7 +278,20 @@ def show_exercise_picker(
             )
             cards.append(item)
 
+        if len(filtered) > len(visible):
+            cards.append(ft.Container(
+                alignment=ft.Alignment.CENTER,
+                padding=12,
+                content=ft.OutlinedButton("Show more exercises", on_click=lambda _: show_more()),
+            ))
+
         list_column.controls = cards
+
+    def show_more():
+        nonlocal visible_limit
+        visible_limit += BROWSE_PAGE_SIZE
+        render_list()
+        page.update()
 
     # Initial renders
     render_categories()
@@ -325,6 +346,7 @@ def show_exercise_picker(
         ft.BottomSheet(
             content=sheet_content,
             show_drag_handle=True,
+            draggable=True,
             scrollable=True,
             maintain_bottom_view_insets_padding=True,
             shape=ft.RoundedRectangleBorder(

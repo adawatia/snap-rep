@@ -5,6 +5,7 @@ import csv
 from pathlib import Path
 import pytest
 import tempfile
+from types import SimpleNamespace
 
 from config import DEFAULT_EXERCISES_DATA, DEFAULT_SETTINGS, EXERCISE_CATEGORIES
 from models import DEFAULT_EXERCISES, Exercise, SetRecord
@@ -15,11 +16,74 @@ import flet as ft
 
 
 def test_default_exercises_and_categories():
-    assert len(DEFAULT_EXERCISES) >= 10
+    assert len(DEFAULT_EXERCISES) >= 876
     pushup = next(e for e in DEFAULT_EXERCISES if e.name == "Push-ups")
     assert pushup.default_reps == 15
+    assert sum(e.name.casefold() == "barbell squat" for e in DEFAULT_EXERCISES) == 1
+    assert next(e for e in DEFAULT_EXERCISES if e.name == "Barbell Squat").default_weight == 80.0
+    assert next(e for e in DEFAULT_EXERCISES if e.name == "Dumbbell Bench Press").weight_setup_pending
+    assert not any(e.name in {"Pushups", "Pullups", "Barbell Deadlift"} for e in DEFAULT_EXERCISES)
     assert "Chest" in EXERCISE_CATEGORIES
     assert "Calisthenics" in EXERCISE_CATEGORIES
+
+
+def test_catalog_upgrade_keeps_saved_exercise_targets(tmp_path):
+    import json
+
+    storage = AppStorage(storage_dir=tmp_path)
+    storage.exercises_file.write_text(json.dumps([
+        {"name": "Barbell Squat", "category": "Legs", "default_reps": 3,
+         "default_weight": 120, "is_custom": False},
+        {"name": "Dumbbell Bench Press", "category": "Chest", "default_reps": 5,
+         "default_weight": 110, "is_custom": False},
+        {"name": "My Custom Move", "category": "Other", "default_reps": 12,
+         "default_weight": 18, "is_custom": True},
+    ]), encoding="utf-8")
+
+    exercises = storage.load_exercises()
+    assert len(exercises) == len(DEFAULT_EXERCISES) + 1
+    assert next(e for e in exercises if e.name == "Barbell Squat").default_weight == 120
+    press = next(e for e in exercises if e.name == "Dumbbell Bench Press")
+    assert press.default_weight == 110
+    assert not press.weight_setup_pending
+    assert exercises[2].name == "My Custom Move"
+    assert len(AppStorage(storage_dir=tmp_path).load_exercises()) == len(exercises)
+
+
+def test_catalog_categories_cover_muscles_and_movement_types():
+    from collections import Counter
+    from components.exercise_browse import filter_exercises
+    from exercise_catalog import CATALOG_TYPE_LABELS, app_category, catalog, catalog_type
+
+    assert app_category({"category": "strength", "primaryMuscles": ["neck"]}) == "Neck"
+    assert all(app_category(item) in EXERCISE_CATEGORIES for item in catalog())
+    source_types = Counter(catalog_type(item) for item in catalog())
+    for label in CATALOG_TYPE_LABELS.values():
+        assert label in EXERCISE_CATEGORIES
+        assert source_types[label] > 0
+        matches, total = filter_exercises(DEFAULT_EXERCISES, "", label)
+        assert matches and total == len(DEFAULT_EXERCISES)
+    neck, _ = filter_exercises(DEFAULT_EXERCISES, "", "Neck")
+    assert len(neck) == 5
+    assert all(item.category == "Neck" for item in neck)
+    assert not filter_exercises(DEFAULT_EXERCISES, "", "Other")[0]
+
+
+def test_catalog_category_upgrade_keeps_custom_classification(tmp_path):
+    import json
+
+    storage = AppStorage(storage_dir=tmp_path)
+    storage.exercises_file.write_text(json.dumps([
+        {"name": "Seated Head Harness Neck Resistance", "category": "Other",
+         "default_reps": 15, "default_weight": 10, "is_custom": False},
+        {"name": "My Neck Drill", "category": "Other", "default_reps": 8,
+         "default_weight": 0, "is_custom": True},
+    ]), encoding="utf-8")
+    exercises = storage.load_exercises()
+    neck = next(e for e in exercises if e.name == "Seated Head Harness Neck Resistance")
+    assert neck.category == "Neck"
+    assert neck.default_reps == 15 and neck.default_weight == 10
+    assert next(e for e in exercises if e.name == "My Neck Drill").category == "Other"
 
 
 def test_exercise_serialization():
@@ -59,6 +123,7 @@ def test_storage_history_and_single_set_deletion():
 
         assert storage.load_history() == []
 
+
         rec1 = SetRecord(exercise="Bench Press", reps=8, weight_kg=70.0)
         rec2 = SetRecord(exercise="Bench Press", reps=6, weight_kg=75.0)
         storage.add_record(rec1)
@@ -77,6 +142,25 @@ def test_storage_history_and_single_set_deletion():
         # Clear
         storage.clear_history()
         assert storage.load_history() == []
+
+
+def test_malformed_saved_rows_do_not_hide_valid_workouts_or_exercises(tmp_path):
+    import json
+
+    storage = AppStorage(storage_dir=tmp_path)
+    valid = SetRecord("Squat", 5, 80)
+    storage.history_file.write_text(json.dumps([
+        valid.to_dict(), {"exercise": "Squat", "reps": 5, "weight_kg": "nan"},
+    ]), encoding="utf-8")
+    storage.exercises_file.write_text(json.dumps([
+        {"name": "My Move", "category": "Other", "default_reps": 8,
+         "default_weight": 20, "is_custom": True},
+        {"name": "Bad Move", "category": "Other", "default_reps": 8,
+         "default_weight": "inf", "is_custom": True},
+    ]), encoding="utf-8")
+    assert [item.id for item in storage.load_history()] == [valid.id]
+    assert any(item.name == "My Move" for item in storage.load_exercises())
+    assert not any(item.name == "Bad Move" for item in storage.load_exercises())
 
 
 def test_custom_exercises_duplicate_detection():
@@ -114,7 +198,7 @@ def test_csv_export():
 
         export_file, csv_content = storage.export_history_to_csv()
 
-        assert export_file.exists()
+        assert not export_file.exists()
         assert export_file.suffix == ".csv"
 
         reader = list(csv.reader(csv_content.strip().splitlines()))
@@ -368,6 +452,15 @@ class MockPage:
         self.services = []
         self.dialog = None
         self.theme_mode = "dark"
+        self.route = "/"
+        self.views = []
+
+    def navigate(self, route):
+        self.route = route
+        self.on_route_change(None)
+
+    async def push_route(self, route):
+        self.navigate(route)
 
     def update(self):
         pass
@@ -482,11 +575,30 @@ async def test_main_mount():
 
     await main(page)
 
-    assert len(page.controls) == 1
-    assert page.navigation_bar is not None
-    assert page.appbar is not None
-    assert page.navigation_bar.selected_index == 0
-    assert len(page.navigation_bar.destinations) == 5
+    assert len(page.views) == 1
+    assert page.views[0].navigation_bar is not None
+    assert page.views[0].appbar is not None
+    assert page.views[0].navigation_bar.selected_index == 0
+    assert len(page.views[0].navigation_bar.destinations) == 5
+    assert page.views[0].navigation_bar.destinations[-1].label == "Weight"
+    transition = page.views[0].controls[0].content.content
+    assert isinstance(transition, ft.AnimatedSwitcher)
+    assert transition.duration == 180
+    navigation = page.views[0].navigation_bar
+    navigation.selected_index = 3
+    navigation.on_change(type("Event", (), {"control": navigation})())
+    assert transition.content.key == "tab-3"
+    navigation.selected_index = 0
+    navigation.on_change(type("Event", (), {"control": navigation})())
+    assert transition.content.key == "tab-0"
+
+    page.views[0].appbar.actions[0].on_click(None)
+    assert page.route == "/settings"
+    assert len(page.views) == 2
+    assert page.views[-1].appbar.title.value == "Settings"
+    await page.on_view_pop(type("Event", (), {"view": page.views[-1]})())
+    assert page.route == "/"
+    assert page.views[0].navigation_bar.selected_index == 0
 
 
 @pytest.mark.asyncio
@@ -583,6 +695,72 @@ def test_tracker_view_weight_and_input():
         # Update UI syncs formatted text
         tracker.update_ui()
         assert tracker.weight_input.value == "72.5"
+
+
+@pytest.mark.asyncio
+async def test_tracker_rejects_invalid_weight_and_async_buttons(tmp_path):
+    import inspect
+    from views.tracker_view import TrackerView
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    page = MockPage()
+    tracker = TrackerView(page, state)
+    await state.select_exercise("Barbell Squat")
+    tracker.update_ui()
+    original_weight = state.current_weight
+    for bad in ("", "oops", "nan", "inf", "1001", "-1"):
+        tracker.weight_input.value = bad
+        tracker._on_weight_input_change(type("Event", (), {"control": tracker.weight_input})())
+        tracker.update_ui()
+        assert state.current_weight == original_weight
+        assert tracker.weight_input.value == bad
+        assert tracker.log_btn.disabled
+        assert tracker.log_btn.content == "CHECK WEIGHT"
+
+    tracker.weight_input.value = "82.5"
+    tracker._on_weight_input_change(type("Event", (), {"control": tracker.weight_input})())
+    assert state.current_weight == 82.5
+    assert not tracker.log_btn.disabled
+    assert inspect.iscoroutinefunction(tracker.default_reps_btn.on_click)
+    assert inspect.iscoroutinefunction(tracker.timer_toggle_btn.on_click)
+    await tracker._increase_rep(None)
+    assert state.current_reps == 9
+    await tracker._increase_weight(None)
+    assert state.current_weight == 85
+    assert inspect.iscoroutinefunction(tracker.weight_shortcuts.controls[-1].on_click)
+    await tracker.weight_shortcuts.controls[-1].on_click(None)
+    assert state.current_weight == 90
+    await tracker.timer_pills_container.controls[0].on_click(None)
+    assert state.timer_seconds_remaining == 30
+    await tracker._reset_timer(None)
+    with pytest.raises(ValueError, match="finite"):
+        await state.update_weight(absolute=float("nan"))
+    state.current_weight = float("nan")
+    logged, message = await state.log_set()
+    assert not logged and "valid weight" in message
+
+
+@pytest.mark.asyncio
+async def test_edit_exercise_rejects_invalid_targets(tmp_path):
+    from components.edit_exercise_dialog import show_edit_exercise_dialog
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    page = MockPage()
+    exercise = next(e for e in state.exercises if e.name == "Barbell Squat")
+    show_edit_exercise_dialog(page, state, exercise)
+    name, category, targets, _ = page.dialog.content.content.controls
+    reps, weight = [container.content for container in targets.controls]
+    save = page.dialog.actions[-1]
+    reps.value = "bad"
+    await save.on_click(None)
+    assert reps.error_text and exercise.default_reps == 8
+    reps.value = "9"
+    weight.value = "nan"
+    await save.on_click(None)
+    assert weight.error_text and exercise.default_weight == 80
+    weight.value = "85"
+    await save.on_click(None)
+    assert next(e for e in state.exercises if e.name == "Barbell Squat").default_weight == 85
 
 
 def test_tracker_uses_compact_layout_on_short_screens(tmp_path):
@@ -757,7 +935,7 @@ def test_exercises_view_library_and_filtering():
 
         # Initially shows all default exercises
         assert len(view.exercise_list_column.controls) >= 10
-        assert "Showing" in view.count_badge.value
+        assert "exercises" in view.count_badge.value
         assert all(
             not row.selected
             for row in view.exercise_list_column.controls
@@ -767,13 +945,19 @@ def test_exercises_view_library_and_filtering():
         # Filter by category
         view._select_category("Chest")
         assert len(view.exercise_list_column.controls) >= 1
+        assert {"Neck", "Plyometrics", "Olympic Lifting"}.issubset(
+            {button.content.value for button in view.category_row.controls}
+        )
 
         # Search filter
         class MockEvent:
             class control:
                 value = "bench"
         view._on_search_change(MockEvent())
-        assert len(view.exercise_list_column.controls) == 1
+        assert any(
+            isinstance(row, ft.ListTile) and "Bench" in row.title.value
+            for row in view.exercise_list_column.controls
+        )
 
 
 def test_exercises_search_and_filters_stay_outside_results_scroll():
@@ -1247,19 +1431,17 @@ def test_create_backup_structure():
 
         backup_file, json_str, backup_data = storage.create_backup()
 
-        assert backup_file.exists()
-        assert backup_file.parent == storage.backups_dir
+        assert not backup_file.exists()
+        assert backup_file.suffix == ".json"
         assert backup_data["app"] == "SnapRep"
-        assert backup_data["version"] == 1
+        assert backup_data["version"] == 2
         assert len(backup_data["history"]) == 1
         assert any(e["name"] == "Muscle-ups" for e in backup_data["exercises"])
         assert backup_data["settings"]["theme_mode"] == "light"
         assert backup_data["settings"]["default_rest_timer"] == 90
 
-        # Verify get_local_backups
-        backups = storage.get_local_backups()
-        assert len(backups) == 1
-        assert backups[0] == backup_file
+        assert storage.get_local_backups() == []
+        assert not storage.backups_dir.exists()
 
 
 @pytest.mark.asyncio
@@ -1268,7 +1450,9 @@ async def test_recent_backup_button_opens_restore_preview(tmp_path):
 
     storage = AppStorage(storage_dir=tmp_path)
     storage.add_record(SetRecord(exercise="Push-ups", reps=15, weight_kg=0.0))
-    storage.create_backup()
+    filename, content, _ = storage.create_backup()
+    storage.backups_dir.mkdir()
+    (storage.backups_dir / filename).write_text(content, encoding="utf-8")
     state = AppState(storage=storage)
     page = MockPage()
 
@@ -1296,11 +1480,175 @@ async def test_backup_copy_button_reports_unavailable_clipboard(tmp_path):
     await show_backup_dialog(page, state)
     dialog = page.dialog
     copy_button = dialog.content.content.controls[-1]
-    status_text = dialog.content.content.controls[-3].controls[1]
+    status_text = dialog.content.content.controls[1]
 
     await copy_button.on_click(None)
     assert "unavailable" in status_text.value
     assert status_text.color == ft.Colors.ERROR
+
+
+@pytest.mark.asyncio
+async def test_backup_save_requires_chosen_destination(tmp_path):
+    from components.backup_dialog import show_backup_dialog
+
+    class Picker:
+        result = None
+        calls = []
+
+        async def save_file(self, **kwargs):
+            self.calls.append(kwargs)
+            return self.result
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    state.file_picker = Picker()
+    page = MockPage()
+    page.width = 320
+    await show_backup_dialog(page, state)
+    controls = page.dialog.content.content.controls
+    status = controls[1]
+    save = next(control for control in controls if isinstance(control, ft.FilledButton))
+    assert page.dialog.content.width <= 272
+    await save.on_click(None)
+    assert "saved" not in status.value.lower()
+    assert state.file_picker.calls[0]["src_bytes"].startswith(b"{")
+    assert not state.storage.backups_dir.exists()
+    state.file_picker.result = "/chosen/snaprep.json"
+    await save.on_click(None)
+    assert "saved" in status.value.lower()
+
+
+@pytest.mark.asyncio
+async def test_csv_export_saves_to_selected_location_and_does_not_claim_cancel(tmp_path):
+    from components.export_dialog import show_export_dialog
+    from models import WeightEntry
+    from datetime import datetime
+
+    class Picker:
+        saved = []
+        result = None
+
+        async def save_file(self, **kwargs):
+            self.saved.append(kwargs)
+            return self.result
+
+    storage = AppStorage(storage_dir=tmp_path)
+    storage.add_record(SetRecord("Deadlift", 5, 100))
+    storage.upsert_weight_entry(WeightEntry(80, datetime.now().astimezone().isoformat()))
+    state = AppState(storage=storage)
+    state.file_picker = Picker()
+    page = MockPage()
+    page.width = 320
+
+    await show_export_dialog(page, state)
+    dialog = page.dialog
+    controls = dialog.content.content.controls
+    assert dialog.content.width <= 272
+    save_button = next(control for control in controls if isinstance(control, ft.FilledButton))
+    status = controls[2]
+    await save_button.on_click(None)
+    assert len(state.file_picker.saved) == 1
+    assert state.file_picker.saved[0]["src_bytes"].startswith(b"ID,Timestamp")
+    assert "saved" not in status.value.lower()
+    state.file_picker.result = "/chosen/history.csv"
+    await save_button.on_click(None)
+    assert "saved" in status.value.lower()
+
+    await show_export_dialog(page, state, kind="weight")
+    weight_save = next(control for control in page.dialog.content.content.controls if isinstance(control, ft.FilledButton))
+    await weight_save.on_click(None)
+    assert state.file_picker.saved[-1]["src_bytes"].startswith(b"ID,Recorded_at")
+
+
+@pytest.mark.asyncio
+async def test_weight_view_add_goal_and_delete(tmp_path):
+    from views.weight_view import WeightView
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    page = MockPage()
+    view = WeightView(page, state)
+    assert "Start with a weigh-in" in str(view.column.controls[0].content.controls[0].value)
+
+    view._edit_entry()
+    form = page.dialog
+    form.content.content.controls[0].value = "83.5"
+    form.actions[-1].on_click(None)
+    assert len(state.weight_history) == 1
+    assert state.weight_history[0].weight_kg == 83.5
+
+    view._edit_target(None)
+    target_form = page.dialog
+    target_form.content.content.controls[0].value = "78"
+    target_form.actions[-1].on_click(None)
+    assert state.settings["target_weight_kg"] == 78
+
+    view._delete_entry(state.weight_history[0])
+    await page.dialog.actions[-1].on_click(None)
+    assert state.weight_history == []
+
+
+def test_weight_history_uses_one_scroll_path_and_pages_readings(tmp_path):
+    from datetime import datetime, timedelta
+    from models import WeightEntry
+    from views.weight_view import WeightView
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    now = datetime.now().astimezone()
+    state.weight_history = [
+        WeightEntry(80 + i / 10, (now - timedelta(days=40 - i)).isoformat())
+        for i in range(40)
+    ]
+    view = WeightView(MockPage(), state)
+    assert not any(isinstance(control, ft.ListView) for control in view.column.controls)
+    history = next(control for control in view.column.controls if isinstance(control, ft.Column)
+                   and len(control.controls) == 30 and isinstance(control.controls[0], ft.ListTile))
+    assert len(history.controls) == 30
+    more = next(control for control in view.column.controls if isinstance(control, ft.OutlinedButton)
+                and "Show more readings" in control.content)
+    more.on_click(None)
+    history = next(control for control in view.column.controls if isinstance(control, ft.Column)
+                   and len(control.controls) == 40 and isinstance(control.controls[0], ft.ListTile))
+    assert len(history.controls) == 40
+
+
+def test_charts_start_hidden_and_taps_show_readable_values(tmp_path):
+    import flet_charts as fch
+    from datetime import datetime, timedelta
+    from models import WeightEntry
+    from views.stats_view import StatsView
+    from views.weight_view import WeightView
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    timestamp = datetime.now().astimezone() - timedelta(hours=1)
+    state.history = [SetRecord("Deadlift", 5, 100, timestamp=timestamp.strftime("%Y-%m-%d %H:%M:%S"))]
+    state.weight_history = [WeightEntry(80, timestamp.isoformat())]
+    page = MockPage()
+
+    stats = StatsView(page, state)
+    assert not stats.show_charts
+    stats._toggle_charts(None)
+    assert stats.show_charts
+    weekly = next(c for section in stats.stats_column.controls if isinstance(section, ft.Column)
+                  for c in section.controls if isinstance(c, fch.BarChart))
+    assert weekly.left_axis.title.value == "Sets"
+    assert weekly.bottom_axis.labels
+    progress = next(c for c in stats.stats_column.controls if isinstance(c, fch.LineChart))
+    assert progress.left_axis.title.value == "kg"
+    assert progress.bottom_axis.title.value == "Date"
+    weekly.on_event(SimpleNamespace(type=fch.ChartEventType.TAP_UP, group_index=7))
+    assert "1 set" in stats.week_detail.value
+
+    weight = WeightView(page, state)
+    add_button = weight.column.controls[0].content.controls[0].controls[1]
+    assert isinstance(add_button, ft.FilledButton)
+    assert add_button.content == "Add weigh-in"
+    assert not weight.show_trend
+    weight._toggle_trend(None)
+    chart = next(c for c in weight.column.controls if isinstance(c, fch.LineChart))
+    assert chart.left_axis.title.value == "kg"
+    assert chart.bottom_axis.title.value == "Date"
+    chart.on_event(SimpleNamespace(type=fch.ChartEventType.TAP_UP,
+                                   spots=[SimpleNamespace(bar_index=0, spot_index=0)]))
+    assert "Daily average: 80.0 kg" in weight.chart_detail.value
 
 
 def test_restore_backup_merge_mode():
@@ -1398,7 +1746,8 @@ async def test_state_create_and_restore_backup():
         assert len(state.history) == 1
 
         backup_file, json_str, backup_data, copied = await state.create_backup()
-        assert backup_file.exists()
+        assert not backup_file.exists()
+        assert copied is False
         assert state.current_exercise.name in json_str
 
         # Clear history
@@ -1460,7 +1809,8 @@ def test_storage_exercise_deduplication():
         names = [e.name for e in exercises]
         assert names.count("Push-ups") == 1
         assert names.count("Lateral Raise") == 1
-        assert len(exercises) == 2
+        assert len(exercises) == len(DEFAULT_EXERCISES)
+        assert next(e for e in exercises if e.name == "Lateral Raise").default_weight == 10.0
 
 
 @pytest.mark.asyncio
@@ -1500,16 +1850,23 @@ def test_exercise_picker_dialog_search_and_category():
         # Check search input, category row, and list container
         search_field = column_controls[1].controls[0]
         category_row = column_controls[2]
+        assert {"Neck", "Plyometrics", "Strongman"}.issubset(
+            {button.content.value for button in category_row.controls}
+        )
         list_container = column_controls[4]
         list_column = list_container.content
 
-        # Initial list contains all exercises
-        assert len(list_column.controls) == len(state.exercises)
+        # The full catalog is searchable while the sheet renders one page at a time.
+        assert len(list_column.controls) < len(state.exercises)
+        assert list_column.controls[-1].content.content == "Show more exercises"
 
         # 1. Test search filter
         search_field.value = "incline"
         search_field.on_change(type("Event", (), {"control": search_field})())
-        assert len(list_column.controls) == 1
+        assert any(
+            item.on_click and "Incline DB Flye" in item.content.controls[0].controls[0].controls[0].value
+            for item in list_column.controls if isinstance(item, ft.Container)
+        )
 
         # 2. Test category filter for "Chest" (clear search query first)
         search_field.value = ""
@@ -1523,6 +1880,76 @@ def test_exercise_picker_dialog_search_and_category():
         custom_pill = next(p for p in category_row.controls if p.content.value == "Custom Only")
         custom_pill.on_click(None)
         assert len(list_column.controls) == 1
+
+
+def test_picker_only_highlights_an_explicit_selection(tmp_path):
+    from components.exercise_picker_dialog import show_exercise_picker
+
+    page = MockPage()
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    show_exercise_picker(page, state)
+    first = page.dialog.content.content.controls[4].content.controls[0]
+    assert first.border.top.color == ft.Colors.OUTLINE_VARIANT
+    assert first.bgcolor == ft.Colors.SURFACE_CONTAINER
+    page.pop_dialog()
+
+    show_exercise_picker(page, state, highlight_current=True)
+    first = page.dialog.content.content.controls[4].content.controls[0]
+    assert first.border.top.color == ft.Colors.PRIMARY
+
+
+def test_history_calendar_refreshes_when_record_date_changes(tmp_path):
+    from datetime import date, timedelta
+    from views.history_view import HistoryView
+
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    view = HistoryView(MockPage(), state)
+    state.history = [SetRecord("Squat", 5, 80, timestamp=f"{date.today()} 09:00:00")]
+    view._render_calendar()
+    original_key = view._last_cal_key
+    state.history = [SetRecord("Squat", 5, 80,
+                               timestamp=f"{date.today() - timedelta(days=1)} 09:00:00")]
+    view._render_calendar()
+    assert view._last_cal_key != original_key
+
+
+@pytest.mark.asyncio
+async def test_catalog_exercise_prompts_once_for_starting_weight(tmp_path):
+    from components.exercise_picker_dialog import show_exercise_picker
+
+    page = MockPage()
+    state = AppState(storage=AppStorage(storage_dir=tmp_path))
+    show_exercise_picker(page, state)
+    picker = page.dialog
+    search = picker.content.content.controls[1].controls[0]
+    search.value = "Dumbbell Bench Press"
+    search.on_change(type("Event", (), {"control": search})())
+    results = picker.content.content.controls[4].content.controls
+    target = next(item for item in results if isinstance(item, ft.Container) and item.on_click
+                  and item.content.controls[0].controls[0].controls[0].value == "Dumbbell Bench Press")
+    await target.on_click(None)
+
+    assert state.current_exercise.name == "Dumbbell Bench Press"
+    assert isinstance(page.dialog, ft.AlertDialog)
+    field = page.dialog.content.content.controls[1]
+    field.value = "67.5"
+    page.dialog.actions[1].on_click(None)
+    assert state.current_weight == 67.5
+    saved = next(e for e in AppStorage(storage_dir=tmp_path).load_exercises()
+                 if e.name == "Dumbbell Bench Press")
+    assert saved.default_weight == 67.5
+    assert not saved.weight_setup_pending
+
+    show_exercise_picker(page, state)
+    picker = page.dialog
+    search = picker.content.content.controls[1].controls[0]
+    search.value = "Dumbbell Bench Press"
+    search.on_change(type("Event", (), {"control": search})())
+    target = next(item for item in picker.content.content.controls[4].content.controls
+                  if isinstance(item, ft.Container) and item.on_click
+                  and item.content.controls[0].controls[-1].controls[0].value == "Dumbbell Bench Press")
+    await target.on_click(None)
+    assert page.dialog is None
 
 
 def test_picker_sheet_fits_short_phone_and_keeps_results_scrollable():
@@ -1553,24 +1980,27 @@ def test_exercise_filters_offer_a_way_back_to_all_categories():
         state = AppState(storage=AppStorage(storage_dir=Path(tmpdir)))
 
         library = ExercisesView(page, state)
-        library._on_search_change(type("Event", (), {"control": type("Field", (), {"value": "push"})()})())
+        library._on_search_change(type("Event", (), {"control": type("Field", (), {"value": "zz-no-such-movement"})()})())
         library._select_category("Chest")
         empty_library = library.exercise_list_column.controls[0].content.controls
         clear_library = next(control for control in empty_library if isinstance(control, ft.TextButton))
         clear_library.on_click(None)
         assert library._selected_category == "All"
+        library._on_search_change(type("Event", (), {"control": type("Field", (), {"value": ""})()})())
         assert any(isinstance(control, ft.ListTile) for control in library.exercise_list_column.controls)
 
         show_exercise_picker(page, state)
         controls = page.dialog.content.content.controls
         search = controls[1].controls[0]
-        search.value = "push"
+        search.value = "zz-no-such-movement"
         search.on_change(type("Event", (), {"control": search})())
         chest = next(control for control in controls[2].controls if control.content.value == "Chest")
         chest.on_click(None)
         empty_picker = controls[4].content.controls[0].content.controls
         clear_picker = next(control for control in empty_picker if isinstance(control, ft.TextButton))
         clear_picker.on_click(None)
+        search.value = ""
+        search.on_change(type("Event", (), {"control": search})())
         assert len(controls[4].content.controls) > 0
         assert any(isinstance(control, ft.Container) and control.on_click for control in controls[4].content.controls)
 
@@ -1632,9 +2062,12 @@ def test_exercises_view_search_no_duplicates():
         view.search_field.value = "concentration"
         view._on_search_change(type("Event", (), {"control": view.search_field})())
 
-        # Despite 3 duplicate instances in state, search results must display exactly 1 card
-        assert len(view.exercise_list_column.controls) == 1
-        assert "Showing 1 of" in view.count_badge.value
+        # The injected duplicates produce only one row for that exact name.
+        assert sum(
+            isinstance(row, ft.ListTile) and row.title.value.casefold() == "concentration curl"
+            for row in view.exercise_list_column.controls
+        ) == 1
+        assert "4 matches" in view.count_badge.value
 
 
 def test_light_theme_coral_palette():
@@ -1713,13 +2146,13 @@ def test_minimal_search_field_and_bottom_sheet_styling():
 
         # Count badge is hidden when not filtering
         count_badge = column_controls[3]
-        assert count_badge.visible is False
+        assert count_badge.visible is True
 
         # Count badge becomes visible when searching
         search_field.value = "push-ups"
         search_field.on_change(type("Event", (), {"control": search_field})())
         assert count_badge.visible is True
-        assert "Showing 1 of" in count_badge.value
+        assert "matches" in count_badge.value
 
 
 
@@ -1734,10 +2167,11 @@ async def test_appbar_no_dumbbell_icon():
     await main(page)
 
     # Dumbbell icon removed from AppBar leading
-    assert page.appbar is not None
-    assert getattr(page.appbar, "leading", None) is None
-    assert page.appbar.automatically_imply_leading is False
-    assert page.appbar.center_title is False
+    appbar = page.views[0].appbar
+    assert appbar is not None
+    assert getattr(appbar, "leading", None) is None
+    assert appbar.automatically_imply_leading is False
+    assert appbar.center_title is False
 
 
 def test_tracker_no_dumbbell_no_search_badge_minimal_ui():
@@ -1774,8 +2208,8 @@ def test_tracker_no_dumbbell_no_search_badge_minimal_ui():
         check_no_dumbbell_or_search(tracker.exercise_selector_card)
 
         # Custom exercise: custom badge becomes visible
-        asyncio.run(state.add_custom_exercise("Ring Dips", "Calisthenics", 12, 0))
-        asyncio.run(state.select_exercise("Ring Dips"))
+        asyncio.run(state.add_custom_exercise("Custom Ring Hold", "Calisthenics", 12, 0))
+        asyncio.run(state.select_exercise("Custom Ring Hold"))
         tracker.update_ui()
         assert tracker.exercise_badge.visible is True
         assert tracker.exercise_badge_text.value == "Custom"

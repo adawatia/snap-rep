@@ -3,7 +3,6 @@ haptic feedback, data export, and app info.
 Streamlined and decluttered with the dedicated Exercises tab.
 """
 
-import asyncio
 from typing import Callable
 import flet as ft
 
@@ -154,6 +153,18 @@ class SettingsView:
             on_confirm=do_clear,
         )
 
+    async def _open_backup(self, e) -> None:
+        await show_backup_dialog(self.page, self.state)
+
+    async def _open_restore(self, e) -> None:
+        await show_restore_dialog(self.page, self.state)
+
+    async def _open_workout_export(self, e) -> None:
+        await show_export_dialog(self.page, self.state)
+
+    async def _open_weight_export(self, e) -> None:
+        await show_export_dialog(self.page, self.state, kind="weight")
+
     def update_ui(self) -> None:
         self.palette_dropdown.value = self.state.settings.get("theme_palette", "coral")
         self.theme_dropdown.value = self.state.settings.get("theme_mode", "light")
@@ -241,16 +252,20 @@ class SettingsView:
                             border_radius=16,
                             content=ft.Column(spacing=0, controls=[
                                 action_tile(
-                                    ft.Icons.BACKUP_OUTLINED, "Back up data", "Save workouts and exercises as JSON",
-                                    lambda _: asyncio.create_task(show_backup_dialog(self.page, self.state)),
+                                    ft.Icons.BACKUP_OUTLINED, "Back up data", "Save workouts, weight, and settings as JSON",
+                                    self._open_backup,
                                 ),
                                 action_tile(
-                                    ft.Icons.RESTORE, "Restore data", "Import a saved JSON backup",
-                                    lambda _: asyncio.create_task(show_restore_dialog(self.page, self.state)),
+                                    ft.Icons.RESTORE_OUTLINED, "Restore data", "Import a saved JSON backup",
+                                    self._open_restore,
                                 ),
                                 action_tile(
-                                    ft.Icons.TABLE_CHART_OUTLINED, "Export history", "Save workout sets as CSV",
-                                    lambda _: asyncio.create_task(show_export_dialog(self.page, self.state)),
+                                    ft.Icons.TABLE_CHART_OUTLINED, "Export workout CSV", "Save logged sets as CSV",
+                                    self._open_workout_export,
+                                ),
+                                action_tile(
+                                    ft.Icons.MONITOR_WEIGHT_OUTLINED, "Export weight CSV", "Save weigh-ins as CSV",
+                                    self._open_weight_export,
                                 ),
                             ]),
                         ),

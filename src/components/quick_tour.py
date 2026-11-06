@@ -17,7 +17,7 @@ def is_first_launch(storage: AppStorage) -> bool:
     """Existing installs should not see the guide after an app update."""
     return not any(
         path.exists()
-        for path in (storage.settings_file, storage.history_file, storage.exercises_file)
+        for path in (storage.settings_file, storage.history_file, storage.exercises_file, storage.weight_file)
     )
 
 
